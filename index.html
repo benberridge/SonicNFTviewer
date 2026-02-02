@@ -5,68 +5,61 @@
   <title>Sonic On‑chain NFT Scanner</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!--
-    1) Primary ethers v6 UMD (global window.ethers).
-       This should succeed in most environments.
-  -->
+  <!-- Primary ethers v6 UMD (global window.ethers) -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.11.1/dist/ethers.umd.min.js"></script>
-
-  <!--
-    2) Resilient fallback: if the primary CDN fails, try unpkg.
-       This ensures window.ethers exists before our app runs.
-  -->
+  <!-- Fallback to unpkg if primary fails -->
   <script>
     (function ensureEthersLoaded() {
       function inject(src, onload, onerror) {
         var s = document.createElement("script");
-        s.src = src;
-        s.async = false;
-        s.onload = onload;
-        s.onerror = onerror;
+        s.src = src; s.async = false; s.onload = onload; s.onerror = onerror;
         document.head.appendChild(s);
       }
       function tryFallback() {
         if (typeof window.ethers !== "undefined") return;
-        inject(
-          "https://unpkg.com/ethers@6.11.1/dist/ethers.umd.min.js",
-          function () { console.log("Loaded ethers from unpkg fallback."); },
-          function () { console.error("All ethers.js CDN fallbacks failed."); }
-        );
+        inject("https://unpkg.com/ethers@6.11.1/dist/ethers.umd.min.js",
+          function(){ console.log("Loaded ethers from unpkg fallback."); },
+          function(){ console.error("All ethers.js CDN fallbacks failed."); });
       }
-      // If the primary load fails (blocked network/CSP/SRI, etc.), add a fallback
-      if (typeof window.ethers === "undefined") {
-        // Wait a tick in case the primary <script> just hasn’t executed yet
-        setTimeout(tryFallback, 100);
-      }
+      if (typeof window.ethers === "undefined") setTimeout(tryFallback, 100);
     })();
   </script>
 
   <style>
-    :root { --bg:#0b0e13; --panel:#131823; --txt:#e6e9ef; --muted:#9aa3b2; --accent:#66e7ff; --danger:#ff6b6b; }
+    :root { --bg:#0b0e13; --panel:#131823; --txt:#e6e9ef; --muted:#9aa3b2; --accent:#66e7ff; --danger:#ff6b6b; --line:#202636; }
     * { box-sizing: border-box; }
     body { margin:0; font-family:system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--txt); }
-    .wrap { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    .wrap { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
     h1 { font-size:1.6rem; margin:.25rem 0 .5rem; }
     .muted { color:var(--muted); }
     .small { font-size:.9rem; }
-    .card { background:var(--panel); border:1px solid #202636; border-radius:12px; padding:1rem; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:1rem; }
     label { display:block; font-size:.9rem; color:var(--muted); margin:.75rem 0 .25rem; }
-    input[type="text"] { width:100%; padding:.7rem .8rem; border:1px solid #263044; border-radius:10px; background:#0f1420; color:var(--txt); }
+    input[type="text"], input[type="number"] {
+      width:100%; padding:.7rem .8rem; border:1px solid #263044; border-radius:10px; background:#0f1420; color:var(--txt);
+    }
     .row { display:grid; grid-template-columns: 1fr auto; gap:.75rem; align-items:end; }
     button { padding:.75rem 1rem; background:var(--accent); color:#00242b; border:0; border-radius:10px; font-weight:600; cursor:pointer; }
     button[disabled] { opacity:.6; cursor:not-allowed; }
-    .cols { display:grid; gap:1rem; grid-template-columns: 1fr 1fr; margin-top:1rem; }
-    .list { min-height: 160px; border:1px dashed #2b3448; border-radius:10px; padding:.75rem; }
-    .error { color:var(--danger); margin-top:.5rem; }
-    @media (max-width: 860px){ .cols { grid-template-columns: 1fr; } }
-    .token { padding:.45rem .6rem; border:1px solid #263044; border-radius:8px; margin-bottom:.5rem; }
+    .cols { display:grid; gap:1rem; grid-template-columns: 1.1fr .9fr; margin-top:1rem; }
+    .list { min-height: 220px; border:1px dashed #2b3448; border-radius:10px; padding:.75rem; overflow:auto; }
+    .error { color:var(--danger); margin-top:.5rem; white-space:pre-wrap; }
+    @media (max-width: 960px){ .cols { grid-template-columns: 1fr; } }
+    .token { padding:.5rem .6rem; border:1px solid #263044; border-radius:8px; margin-bottom:.5rem; cursor:pointer; }
+    .token:hover { border-color:#345; background:#0f1420; }
+    .hdr { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+    .kvs { display:flex; gap:.75rem; flex-wrap:wrap; }
+    .kv  { background:#0f1420; border:1px solid #263044; border-radius:8px; padding:.25rem .5rem; font-size:.8rem; color:var(--muted); }
+    .pill { display:inline-block; background:#0f1420; border:1px solid #263044; border-radius:999px; padding:.1rem .5rem; font-size:.75rem; color:#9fc2ca; }
+    summary { cursor:pointer; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
       <h1>Sonic On‑chain NFT Scanner</h1>
-      <p class="muted small">Runs only on RPC calls (no explorer API key).</p>
+      <p class="muted small">Runs only on RPC calls (no explorer API key). Collections on the left; click to view all tokens held in that collection on the right. [1](https://onedrive.live.com?cid=DE528A5CF6C24C45&id=DE528A5CF6C24C45!s2ebcb4df77844e3faef36b12e45ff3d9)</p>
     </header>
 
     <section class="card">
@@ -75,111 +68,391 @@
 
       <label for="wallet">Wallet address</label>
       <div class="row">
-        <input id="wallet" type="text" placeholder="0x… wallet address" autocomplete="off" />
+        <input id="wallet" class="mono" type="text" placeholder="0x… wallet address" autocomplete="off" />
         <button id="scanBtn">Scan</button>
       </div>
+
+      <details style="margin-top:.5rem;">
+        <summary class="muted small">Advanced (block scanning options)</summary>
+        <div class="kvs" style="margin-top:.5rem;">
+          <div style="min-width:180px;">
+            <label for="fromBlock">From block</label>
+            <input id="fromBlock" class="mono" type="number" min="0" step="1" placeholder="0 (default)" />
+          </div>
+          <div style="min-width:180px;">
+            <label for="toBlock">To block (blank = latest)</label>
+            <input id="toBlock" class="mono" type="number" min="0" step="1" placeholder="latest" />
+          </div>
+          <div style="min-width:220px;">
+            <label for="chunkSize">Chunk size (blocks per query)</label>
+            <input id="chunkSize" class="mono" type="number" min="1000" step="1000" value="20000" />
+          </div>
+        </div>
+      </details>
+
       <div id="status" class="muted small" style="margin-top:.5rem;"></div>
       <div id="error" class="error" role="alert"></div>
     </section>
 
     <section class="cols">
       <div class="card">
-        <h3 style="margin:.25rem 0 .5rem;">Tokens Found</h3>
+        <div class="hdr" style="margin-bottom:.5rem;">
+          <h3 style="margin:0;">Tokens Found</h3>
+          <span id="foundPill" class="pill">0 collections</span>
+        </div>
         <div id="tokens" class="list muted small">No results yet</div>
       </div>
+
       <div class="card">
-        <h3 style="margin:.25rem 0 .5rem;">Selected token</h3>
-        <div id="selected" class="list muted small">Select a token to view instances.</div>
+        <div class="hdr" style="margin-bottom:.5rem;">
+          <h3 style="margin:0;">Selected token</h3>
+          <span id="selPill" class="pill">—</span>
+        </div>
+        <div id="selected" class="list muted small">Select a collection to view all tokens the wallet holds for it. [1](https://onedrive.live.com?cid=DE528A5CF6C24C45&id=DE528A5CF6C24C45!s2ebcb4df77844e3faef36b12e45ff3d9)</div>
       </div>
     </section>
   </div>
 
   <script>
-    // ---------- Utilities ----------
+    // ----------------- Utilities & UI helpers -----------------
     const $ = (id) => document.getElementById(id);
-    const setStatus = (msg) => { $("status").textContent = msg ?? ""; };
-    const setError  = (msg) => { $("error").textContent  = msg ?? ""; };
+    const setStatus = (msg) => $("status").textContent = msg ?? "";
+    const setError  = (msg) => $("error").textContent  = msg ?? "";
     const clearMsgs = () => { setStatus(""); setError(""); };
     const disable   = (el, on = true) => el && (el.disabled = !!on);
 
     function requireEthersOrShow() {
       if (typeof window.ethers === "undefined") {
-        setError("Failed to load ethers.js. Check network/CSP or self‑host ethers. See console for details.");
-        console.error("window.ethers is undefined. Verify CDN accessibility or CSP.");
+        setError("Failed to load ethers.js. Check network/CSP or self‑host ethers.umd.min.js.");
+        console.error("window.ethers is undefined.");
         return false;
       }
       return true;
     }
+    const fmt = (n) => new Intl.NumberFormat().format(n);
 
-    // Validate hex EOA/contract address (ethers v6 global API)
-    function isAddress(addr) {
-      try { return window.ethers.isAddress(addr); } catch { return false; }
+    // Concurrency controller for RPC calls
+    async function runBatched(items, limit, worker) {
+      const results = [];
+      let i = 0; let active = 0;
+      return new Promise((resolve, reject) => {
+        const next = () => {
+          if (i === items.length && active === 0) return resolve(results);
+          while (active < limit && i < items.length) {
+            const idx = i++, item = items[idx];
+            active++;
+            Promise.resolve(worker(item, idx))
+              .then((r) => { results[idx] = r; active--; next(); })
+              .catch((e) => { results[idx] = { error: e }; active--; next(); });
+          }
+        };
+        next();
+      });
     }
 
-    function createProvider() {
-      const rpc = $("rpcUrl").value.trim();                 // Fixed Sonic RPC
-      return new window.ethers.JsonRpcProvider(rpc);        // v6 provider
-    }
+    // ----------------- Chain constants & ABIs -----------------
+    // Event topics
+    const TOPIC_ERC721_TRANSFER = () => window.ethers.id("Transfer(address,address,uint256)");
+    const TOPIC_ERC1155_SINGLE  = () => window.ethers.id("TransferSingle(address,address,address,uint256,uint256)");
+    const TOPIC_ERC1155_BATCH   = () => window.ethers.id("TransferBatch(address,address,address,uint256[],uint256[])");
 
-    // ---------- Scan Logic (stub you can extend) ----------
-    async function scanAddress() {
+    // Minimal ABIs
+    const ABI_ERC721 = [
+      "function balanceOf(address) view returns (uint256)",
+      "function ownerOf(uint256) view returns (address)",
+      "function name() view returns (string)",
+      "function symbol() view returns (string)",
+      "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
+    ];
+    const ABI_ERC1155 = [
+      "function balanceOf(address account, uint256 id) view returns (uint256)",
+      "function uri(uint256 id) view returns (string)", // optional
+      "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)",
+      "event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)"
+    ];
+
+    // ----------------- Provider & inputs -----------------
+    function getProvider() {
+      const rpc = $("rpcUrl").value.trim(); // fixed Sonic RPC
+      return new window.ethers.JsonRpcProvider(rpc);
+    }
+    const toTopicAddress = (addr) =>
+      window.ethers.zeroPadValue(window.ethers.getAddress(addr), 32);
+
+    // ----------------- Discovery (logs → balances) -----------------
+    async function scanWalletNfts() {
       clearMsgs();
       if (!requireEthersOrShow()) return;
 
-      const wallet = $("wallet").value.trim();
-      if (!wallet)      return setError("Please enter a wallet address.");
-      if (!isAddress(wallet)) return setError("That doesn’t look like a valid address.");
+      const walletRaw = $("wallet").value.trim();
+      if (!walletRaw) return setError("Please enter a wallet address.");
+      let wallet;
+      try { wallet = window.ethers.getAddress(walletRaw); }
+      catch { return setError("That doesn’t look like a valid address."); }
 
       const btn = $("scanBtn");
       disable(btn, true);
-      setStatus("Connecting to RPC and validating address…");
+      setStatus("Connecting to Sonic RPC…");
 
-      try {
-        const provider = createProvider();
+      const provider = getProvider();
+      let latest = await provider.getBlockNumber();
 
-        // Check RPC health quickly
-        const [network, latest] = await Promise.all([
-          provider.getNetwork(),
-          provider.getBlockNumber()
-        ]);
-        setStatus(`Connected to chain ${Number(network.chainId)} • latest block ${latest}. Scanning…`);
+      // Read advanced options
+      let fromBlock = parseInt($("fromBlock").value || "0", 10);
+      let toBlock   = $("toBlock").value ? parseInt($("toBlock").value, 10) : latest;
+      const chunk   = Math.max(1000, parseInt($("chunkSize").value || "20000", 10));
+      if (Number.isNaN(fromBlock) || fromBlock < 0) fromBlock = 0;
+      if (Number.isNaN(toBlock) || toBlock < fromBlock) toBlock = latest;
 
-        // TODO: Replace the placeholder below with real NFT discovery:
-        //  - Query ERC‑721 Transfer logs
-        //  - Query ERC‑1155 TransferSingle/TransferBatch logs
-        //  - Use topics with the wallet in from/to to narrow event scans
-        const tokensEl = $("tokens");
-        tokensEl.textContent = "";
-        tokensEl.classList.remove("muted");
+      const chain = await provider.getNetwork();
+      const chainId = Number(chain.chainId);
 
-        const sample = document.createElement("div");
-        sample.className = "token";
-        sample.innerHTML = `
-          <div><strong>Sample Token</strong> (replace with actual results)</div>
-          <div class="small muted">Chain: ${Number(network.chainId)} • Block: ${latest}</div>
-        `;
-        tokensEl.appendChild(sample);
+      // UI reset
+      const tokensEl = $("tokens");
+      tokensEl.textContent = ""; tokensEl.classList.remove("muted");
+      $("selected").textContent = "Scanning…";
+      $("selPill").textContent = "—";
+      $("foundPill").textContent = "0 collections";
 
-        $("selected").textContent = "Click a token to view instances (not wired yet).";
-        setStatus("Scan complete.");
-      } catch (err) {
-        console.error(err);
-        setError(err?.message || "Scan failed. See console for details.");
-      } finally {
-        disable(btn, false);
+      // We’ll gather candidate collections, then confirm owned tokens.
+      const candidate = new Map(); // contract => { standard, tokenIds:Set, idBalances:Map(id->?num) }
+
+      const walletTopic = toTopicAddress(wallet);
+
+      // Iterate blocks in chunks to respect RPC limits
+      let processed = 0;
+      for (let start = fromBlock; start <= toBlock; start += chunk) {
+        const end = Math.min(start + chunk - 1, toBlock);
+        setStatus(`Scanning logs ${fmt(start)} → ${fmt(end)} of ${fmt(toBlock)}…`);
+
+        // Prepare filters (6 calls per chunk)
+        const filters = [
+          // ERC-721 Transfer (wallet as FROM)
+          { fromBlock: start, toBlock: end, topics: [TOPIC_ERC721_TRANSFER(), walletTopic, null] },
+          // ERC-721 Transfer (wallet as TO)
+          { fromBlock: start, toBlock: end, topics: [TOPIC_ERC721_TRANSFER(), null, walletTopic] },
+          // ERC-1155 Single (wallet as FROM) topics: [sig, operator, from, to]
+          { fromBlock: start, toBlock: end, topics: [TOPIC_ERC1155_SINGLE(), null, walletTopic, null] },
+          // ERC-1155 Single (wallet as TO)
+          { fromBlock: start, toBlock: end, topics: [TOPIC_ERC1155_SINGLE(), null, null, walletTopic] },
+          // ERC-1155 Batch (wallet as FROM)
+          { fromBlock: start, toBlock: end, topics: [TOPIC_ERC1155_BATCH(), null, walletTopic, null] },
+          // ERC-1155 Batch (wallet as TO)
+          { fromBlock: start, toBlock: end, topics: [TOPIC_ERC1155_BATCH(), null, null, walletTopic] },
+        ];
+
+        // Fetch logs with modest concurrency (avoid hammering RPC)
+        const logsArrays = await runBatched(filters, 3, (f) => provider.getLogs(f));
+        const allLogs = logsArrays.flat().filter(Boolean);
+
+        // Parse logs → populate candidate map
+        for (const log of allLogs) {
+          const addr = window.ethers.getAddress(log.address);
+          // Identify event by topic0
+          const t0 = log.topics[0];
+          if (t0 === TOPIC_ERC721_TRANSFER()) {
+            // ERC-721: tokenId is indexed as topics[3]
+            const tokenId = window.ethers.toBigInt(log.topics[3]).toString();
+            let entry = candidate.get(addr);
+            if (!entry) {
+              entry = { standard: "ERC721", tokenIds: new Set(), idBalances: null, meta: null };
+              candidate.set(addr, entry);
+            } else {
+              entry.standard = entry.standard || "ERC721";
+            }
+            entry.tokenIds.add(tokenId);
+          } else if (t0 === TOPIC_ERC1155_SINGLE()) {
+            // Data: id (uint256), value (uint256), both non-indexed; decode via ABI
+            const iface = new window.ethers.Interface(ABI_ERC1155);
+            const parsed = iface.decodeEventLog("TransferSingle", log.data, log.topics);
+            const id = window.ethers.toBigInt(parsed.id).toString();
+            let entry = candidate.get(addr);
+            if (!entry) {
+              entry = { standard: "ERC1155", tokenIds: new Set(), idBalances: new Map(), meta: null };
+              candidate.set(addr, entry);
+            } else {
+              entry.standard = entry.standard || "ERC1155";
+            }
+            entry.tokenIds.add(id); // store as candidate id
+          } else if (t0 === TOPIC_ERC1155_BATCH()) {
+            const iface = new window.ethers.Interface(ABI_ERC1155);
+            const parsed = iface.decodeEventLog("TransferBatch", log.data, log.topics);
+            const ids = parsed.ids.map(x => window.ethers.toBigInt(x).toString());
+            let entry = candidate.get(addr);
+            if (!entry) {
+              entry = { standard: "ERC1155", tokenIds: new Set(), idBalances: new Map(), meta: null };
+              candidate.set(addr, entry);
+            } else {
+              entry.standard = entry.standard || "ERC1155";
+            }
+            ids.forEach(id => entry.tokenIds.add(id));
+          }
+        }
+
+        processed += (end - start + 1);
+        $("foundPill").textContent = `${candidate.size} collections (so far)`;
       }
-    }
 
-    // ---------- Wire UI ----------
-    window.addEventListener("DOMContentLoaded", () => {
-      if (!requireEthersOrShow()) {
-        // If you consistently see this, either relax CSP, add CDN to script-src, or self‑host ethers.umd.min.js locally.
+      // Now confirm current holdings for each collection by querying the contract.
+      setStatus(`Confirming balances and current ownership on chain (collections: ${candidate.size})…`);
+
+      // Resolve metadata (name/symbol for 721) and balances/owner checks
+      const collections = [];
+      for (const [contractAddr, entry] of candidate.entries()) {
+        collections.push({ address: contractAddr, ...entry });
+      }
+
+      // Metadata for ERC-721 (optional, best-effort)
+      await runBatched(collections, 6, async (col) => {
+        try {
+          if (col.standard === "ERC721") {
+            const c = new window.ethers.Contract(col.address, ABI_ERC721, provider);
+            const [name, symbol] = await Promise.allSettled([c.name(), c.symbol()]);
+            col.meta = {
+              name: name.status === "fulfilled" ? name.value : null,
+              symbol: symbol.status === "fulfilled" ? symbol.value : null
+            };
+          } else {
+            col.meta = null;
+          }
+        } catch (_) { col.meta = null; }
+      });
+
+      // For each collection, verify which token IDs are currently owned
+      // ERC-721: ownerOf(id) == wallet
+      // ERC-1155: balanceOf(wallet, id) > 0
+      await runBatched(collections, 3, async (col) => {
+        if (col.standard === "ERC721") {
+          const c = new window.ethers.Contract(col.address, ABI_ERC721, provider);
+          const ids = Array.from(col.tokenIds);
+          const owned = [];
+          // limit concurrency
+          await runBatched(ids, 10, async (id) => {
+            try {
+              const owner = await c.ownerOf(id);
+              if (window.ethers.getAddress(owner) === wallet) owned.push(id);
+            } catch (_) {
+              // ownerOf may revert for burned/nonexistent token; ignore
+            }
+          });
+          col.tokenIds = new Set(owned);
+        } else {
+          const c = new window.ethers.Contract(col.address, ABI_ERC1155, provider);
+          const ids = Array.from(col.tokenIds);
+          const keep = [];
+          await runBatched(ids, 10, async (id) => {
+            try {
+              const bal = await c.balanceOf(wallet, id);
+              if (window.ethers.toBigInt(bal) > 0n) keep.push(id);
+            } catch (_) {/* ignore */}
+          });
+          col.tokenIds = new Set(keep);
+        }
+      });
+
+      // Filter out empty collections (no current holdings)
+      const ownedCollections = collections
+        .map(c => ({ ...c, count: c.tokenIds.size }))
+        .filter(c => c.count > 0)
+        // sort by count desc, then address
+        .sort((a,b) => (b.count - a.count) || a.address.localeCompare(b.address));
+
+      // Render left list (collections)
+      tokensEl.textContent = "";
+      if (ownedCollections.length === 0) {
+        tokensEl.classList.add("muted");
+        tokensEl.textContent = "No NFTs found for this wallet in the scanned block range.";
+        $("foundPill").textContent = "0 collections";
+        $("selected").textContent = "—";
+        $("selPill").textContent = "—";
+        setStatus("Scan complete.");
+        disable(btn, false);
         return;
       }
-      $("scanBtn").addEventListener("click", (e) => { e.preventDefault(); scanAddress(); });
-      $("wallet").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); scanAddress(); }
+
+      $("foundPill").textContent = `${ownedCollections.length} collection${ownedCollections.length>1?"s":""}`;
+      ownedCollections.forEach((col, idx) => {
+        const div = document.createElement("div");
+        div.className = "token";
+        const title = col.meta?.name
+          ? `${col.meta.name}${col.meta.symbol ? " ("+col.meta.symbol+")" : ""}`
+          : col.address;
+        div.innerHTML = `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:.5rem;">
+            <div>
+              <div><strong>${escapeHtml(title)}</strong></div>
+              <div class="small muted mono">${col.address}</div>
+            </div>
+            <div class="pill">${col.standard} • ${fmt(col.count)} token${col.count>1?"s":""}</div>
+          </div>`;
+        div.addEventListener("click", () => renderCollectionDetail(col, wallet, chainId));
+        tokensEl.appendChild(div);
       });
+
+      setStatus(`Scan complete. Chain ${chainId} • Blocks scanned: ${fmt(toBlock - fromBlock + 1)}.`);
+      disable(btn, false);
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    function renderCollectionDetail(col, wallet, chainId) {
+      const sel = $("selected");
+      sel.textContent = "";
+      $("selPill").textContent = `${col.standard} • ${fmt(col.tokenIds.size)} token${col.tokenIds.size>1?"s":""}`;
+      const header = document.createElement("div");
+      const title = col.meta?.name
+        ? `${col.meta.name}${col.meta.symbol ? " ("+col.meta.symbol+")" : ""}`
+        : col.address;
+      header.innerHTML = `
+        <div style="margin-bottom:.5rem;">
+          <div><strong>${escapeHtml(title)}</strong></div>
+          <div class="small muted mono">${col.address}</div>
+          <div class="small muted">Chain: ${chainId} • Owner: <span class="mono">${wallet}</span></div>
+        </div>`;
+      sel.appendChild(header);
+
+      // List tokens
+      const box = document.createElement("div");
+      box.className = "list";
+      const ids = Array.from(col.tokenIds).sort((a,b) => BigInt(a) > BigInt(b) ? 1 : -1);
+      if (col.standard === "ERC721") {
+        ids.forEach(id => {
+          const row = document.createElement("div");
+          row.className = "token";
+          row.innerHTML = `
+            <div class="mono">tokenId: ${id}</div>
+          `;
+          box.appendChild(row);
+        });
+      } else {
+        ids.forEach(id => {
+          const row = document.createElement("div");
+          row.className = "token";
+          row.innerHTML = `
+            <div class="mono">id: ${id}</div>
+            <div class="small muted">ERC‑1155 (balance &gt; 0)</div>
+          `;
+          box.appendChild(row);
+        });
+      }
+      sel.appendChild(box);
+    }
+
+    // ----------------- Wire UI -----------------
+    window.addEventListener("DOMContentLoaded", async () => {
+      if (!requireEthersOrShow()) return;
+
+      $("scanBtn").addEventListener("click", (e) => { e.preventDefault(); scanWalletNfts(); });
+      $("wallet").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); scanWalletNfts(); } });
+
+      // Optional: preload latest block to show a sensible placeholder for Advanced
+      try {
+        const provider = getProvider();
+        const latest = await provider.getBlockNumber();
+        $("toBlock").placeholder = `${latest} (latest)`;
+      } catch (_) { /* ignore */ }
     });
   </script>
 </body>
