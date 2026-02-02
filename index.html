@@ -1,158 +1,347 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8"/>
-<title>Sonic NFT Holdings (Explorer API)</title>
-<style>
-  body{font-family:Arial;margin:18px;background:#f6f7fb;color:#111}
-  .wrap{max-width:980px;margin:0 auto}
-  input{padding:8px;border-radius:6px;border:1px solid #cfd6e3}
-  button{padding:8px 12px;border-radius:6px;background:#0b63ff;color:#fff;border:0}
-  .cols{display:flex;gap:14px;margin-top:12px}
-  .panel{background:#fff;padding:12px;border-radius:10px;box-shadow:0 1px 6px rgba(20,20,40,0.05)}
-  #list{width:360px;max-height:640px;overflow:auto}
-  .item{display:flex;justify-content:space-between;padding:8px;border-radius:8px;cursor:pointer}
-  .item:hover{background:#f1f5ff}
-  .small{font-size:13px;color:#666}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-top:12px}
-  .card{background:#fff;padding:8px;border-radius:8px;text-align:center}
-  img{width:100%;height:120px;object-fit:cover;border-radius:6px}
-</style>
+  <meta charset="utf-8"/>
+  <title>Sonic On‑chain NFT Scanner</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f6f8fb;margin:18px;color:#111}
+    .wrap{max-width:980px;margin:0 auto}
+    input,select{padding:8px;border-radius:6px;border:1px solid #cfd6e3}
+    button{padding:8px 12px;border-radius:6px;border:0;background:#2563eb;color:#fff;cursor:pointer}
+    .cols{display:flex;gap:14px;margin-top:12px}
+    .panel{background:#fff;padding:12px;border-radius:10px;box-shadow:0 1px 6px rgba(20,20,40,0.05)}
+    #list{width:380px;max-height:640px;overflow:auto}
+    .item{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
+    .item:hover{background:#eef4ff}
+    .thumb{width:56px;height:56px;border-radius:8px;object-fit:cover;background:#eee}
+    .meta{flex:1;min-width:0}
+    .title{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sub{font-size:12px;color:#666;margin-top:4px}
+    .count{font-weight:700;color:#0f172a}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-top:12px}
+    .card{background:#fff;border-radius:8px;padding:8px;text-align:center;box-shadow:0 1px 3px rgba(20,20,40,0.04)}
+    .card img{width:100%;height:120px;object-fit:cover;border-radius:6px}
+    .small{font-size:12px;color:#666}
+    .note{font-size:13px;color:#666;margin-top:8px}
+    .error{color:#b91c1c}
+    pre{white-space:pre-wrap;word-break:break-word}
+  </style>
+  <!-- ethers v6 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.9.0/dist/ethers.min.js"></script>
 </head>
 <body>
-<div class="wrap">
-  <h3>Sonic NFT Holdings (address input)</h3>
-  <div class="small">This page queries the Sonic explorer API (sonicscan.org). Provide a Sonic explorer API key and a wallet address. See Sonic network docs for RPC/explorer details. </div>
+  <div class="wrap">
+    <h3>Sonic On‑chain NFT Scanner</h3>
+    <div class="note">Paste a Sonic RPC URL and a wallet address. Adjust scan blocks if needed. This runs only on‑chain RPC calls (no explorer API key).</div>
 
-  <div style="margin-top:12px">
-    <input id="addr" placeholder="0x... wallet address" style="width:360px"/>
-    <input id="api" placeholder="Sonic explorer API key" style="width:360px"/>
-    <button id="go">Fetch</button>
-    <span id="status" class="small" style="margin-left:10px"></span>
-  </div>
-
-  <div class="cols" style="margin-top:12px">
-    <div class="panel" id="left" style="width:380px">
-      <h4 style="margin:0 0 8px 0">Tokens</h4>
-      <div id="list">Enter address and click Fetch</div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <input id="rpc" placeholder="Sonic RPC URL (e.g., https://rpc.sonic.example)" style="width:420px"/>
+      <input id="address" placeholder="0x... wallet address" style="width:320px"/>
+      <input id="blocks" placeholder="Scan blocks (default 200000)" style="width:160px"/>
+      <button id="scanBtn">Scan</button>
+      <span id="status" class="small" style="margin-left:8px"></span>
     </div>
 
-    <div class="panel" id="right" style="flex:1">
-      <h4 style="margin:0 0 8px 0">Selected token</h4>
-      <div id="detail"><div class="small">Select a token to view instances.</div></div>
+    <div class="cols" style="margin-top:12px">
+      <div class="panel" id="left">
+        <h4 style="margin:0 0 8px 0">Tokens Found</h4>
+        <div id="list">No results yet</div>
+      </div>
+
+      <div class="panel" id="right" style="flex:1">
+        <h4 style="margin:0 0 8px 0">Selected token</h4>
+        <div id="detail"><div class="small">Select a token to view instances.</div></div>
+      </div>
     </div>
   </div>
-</div>
 
 <script>
-const explorerApiBase = 'https://sonicscan.org/api'; // Sonic explorer (Etherscan-style) API root
-const listEl = document.getElementById('list'), detailEl = document.getElementById('detail'), status = document.getElementById('status');
+/*
+  Approach:
+  - Use provider.getBlockNumber() to determine latest block.
+  - Set fromBlock = latest - scanBlocks (default 200000).
+  - Query logs for ERC-721 Transfer and ERC-1155 TransferSingle/TransferBatch events where from or to equals the address.
+  - Build a set of (contract, tokenId) candidates.
+  - For each candidate:
+      - If ERC-721: call ownerOf(tokenId) and include if owner matches address.
+      - If ERC-1155: call balanceOf(address, tokenId) and include if >0.
+  - Attempt to fetch tokenURI/uri for metadata.
+  - Render list and allow clicking to show instances (repeat count times for ERC-1155).
+*/
 
-function safe(s){ return String(s||''); }
-function ipfsToHttp(u){ if(!u) return ''; if(u.startsWith('ipfs://')) return 'https://ipfs.io/ipfs/'+u.slice(7); return u; }
+const scanBtn = document.getElementById('scanBtn');
+const rpcInput = document.getElementById('rpc');
+const addrInput = document.getElementById('address');
+const blocksInput = document.getElementById('blocks');
+const listEl = document.getElementById('list');
+const detailEl = document.getElementById('detail');
+const statusEl = document.getElementById('status');
 
-async function fetchTransfers(address, apiKey, page=1, offset=100){
-  // Try ERC-721 transfer endpoint (Etherscan-style)
-  const url = `${explorerApiBase}?module=account&action=tokennfttx&address=${address}&page=${page}&offset=${offset}&sort=asc&apikey=${apiKey}`;
-  const r = await fetch(url);
-  if(!r.ok) throw new Error('Explorer API error '+r.status);
-  return r.json();
+const ERC721_ABI = [
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "function tokenURI(uint256 tokenId) view returns (string)"
+];
+const ERC1155_ABI = [
+  "function balanceOf(address account, uint256 id) view returns (uint256)",
+  "function uri(uint256 id) view returns (string)"
+];
+
+function ipfsToHttp(url){
+  if(!url) return '';
+  if(url.startsWith('ipfs://')) return 'https://ipfs.io/ipfs/'+url.slice(7);
+  return url;
 }
+function safeText(s){ return String(s||''); }
 
-async function fetch1155Transfers(address, apiKey, page=1, offset=100){
-  // Some explorers expose a token1155tx action; try it, but ignore errors if not supported.
-  const url = `${explorerApiBase}?module=account&action=token1155tx&address=${address}&page=${page}&offset=${offset}&sort=asc&apikey=${apiKey}`;
-  const r = await fetch(url);
-  if(!r.ok) return {status:'0',result:[]};
-  return r.json();
-}
-
-function groupByToken(records){
-  const map = {};
-  records.forEach(tx=>{
-    const key = (tx.contractAddress||tx.contractAddress||tx.tokenAddress||'').toLowerCase() + '|' + (tx.tokenID||tx.tokenId||tx.tokenID||tx.tokenId||tx.tokenID||'');
-    if(!map[key]) map[key] = {contract:tx.contractAddress||tx.tokenAddress, tokenId:tx.tokenID||tx.tokenId||tx.tokenID, tokenType:tx.tokenType||'ERC-721', title:tx.tokenName||tx.tokenSymbol||tx.tokenID||'', count:0, txs:[]};
-    // compute net holdings by counting incoming vs outgoing
-    const from = (tx.from||'').toLowerCase(), to = (tx.to||'').toLowerCase();
-    map[key].txs.push(tx);
-    // treat each transfer as 1 unless quantity field exists
-    const qty = Number(tx.value || tx.quantity || tx.amount || 1);
-    // We'll compute net later
-  });
-  // compute net holdings
-  Object.values(map).forEach(g=>{
-    let net = 0;
-    g.txs.forEach(tx=>{
-      const from = (tx.from||'').toLowerCase(), to = (tx.to||'').toLowerCase();
-      // if to is our address -> +qty; if from is our address -> -qty
-      // we don't know the queried address here; store txs and compute later in caller
-    });
-  });
-  return map;
-}
-
-document.getElementById('go').onclick = async ()=>{
-  const addr = (document.getElementById('addr').value||'').trim();
-  const api = (document.getElementById('api').value||'').trim();
-  listEl.innerHTML = ''; detailEl.innerHTML = '<div class="small">Select a token to view instances.</div>'; status.textContent='';
-  if(!addr) return status.textContent='Enter address';
-  if(!api) return status.textContent='Enter Sonic explorer API key';
-  status.textContent='Fetching transfers...';
+async function scan() {
+  const rpc = (rpcInput.value||'').trim();
+  const address = (addrInput.value||'').trim();
+  const blocks = Number(blocksInput.value) || 200000;
+  listEl.innerHTML = ''; detailEl.innerHTML = '<div class="small">Select a token to view instances.</div>'; statusEl.textContent = '';
+  if(!rpc) return statusEl.textContent = 'Enter RPC URL';
+  if(!address) return statusEl.textContent = 'Enter wallet address';
+  statusEl.textContent = 'Initializing provider...';
   try{
-    // fetch ERC-721 transfers (page 1 only for simplicity)
-    const r1 = await fetchTransfers(addr, api, 1, 200);
-    const r2 = await fetch1155Transfers(addr, api, 1, 200).catch(()=>({status:'0',result:[]}));
-    const all = [];
-    if(r1 && r1.status==='1') all.push(...r1.result);
-    if(r2 && r2.status==='1') all.push(...r2.result);
-    if(all.length===0){ listEl.innerHTML = '<div class="small">No NFT transfer records found on Sonic explorer.</div>'; status.textContent='Done'; return; }
-    // compute net holdings per token
-    const map = {};
-    all.forEach(tx=>{
-      const contract = (tx.contractAddress||tx.tokenAddress||'').toLowerCase();
-      const tokenId = tx.tokenID||tx.tokenId||tx.tokenID||tx.tokenID||tx.tokenID||'';
-      const key = contract+'|'+tokenId;
-      if(!map[key]) map[key] = {contract, tokenId, name:tx.tokenName||tx.tokenSymbol||contract, tokenType: tx.tokenType||'ERC-721', image: ipfsToHttp(tx.tokenImage||tx.tokenURI||''), txs:[], count:0};
-      map[key].txs.push(tx);
-    });
-    // compute net for each token relative to the queried address
-    Object.values(map).forEach(g=>{
-      let net = 0;
-      g.txs.forEach(tx=>{
-        const from = (tx.from||'').toLowerCase(), to = (tx.to||'').toLowerCase();
-        const qty = Number(tx.value || tx.quantity || tx.amount || 1);
-        if(to === addr.toLowerCase()) net += qty;
-        if(from === addr.toLowerCase()) net -= qty;
-      });
-      g.count = net;
-    });
-    // filter out zero or negative holdings
-    const held = Object.values(map).filter(x=>x.count>0).sort((a,b)=>b.count-a.count);
-    if(held.length===0){ listEl.innerHTML = '<div class="small">No current holdings found on Sonic (net = 0 for all tokens).</div>'; status.textContent='Done'; return; }
-    // render list
-    held.forEach(h=>{
-      const div = document.createElement('div'); div.className='item';
-      div.innerHTML = `<div><div style="font-weight:600">${h.name||h.contract}</div><div class="small">${h.contract} • ID ${h.tokenId}</div></div><div style="font-weight:700">${h.count}</div>`;
-      div.onclick = ()=> showDetail(h, addr);
-      listEl.appendChild(div);
-    });
-    status.textContent = `Found ${held.length} token types held (page 1).`;
-  } catch(e){
-    status.textContent = 'Error: '+e.message;
-  }
-};
+    const provider = new ethers.JsonRpcProvider(rpc);
+    const latest = await provider.getBlockNumber();
+    const fromBlock = Math.max(0, latest - blocks);
+    statusEl.textContent = `Scanning blocks ${fromBlock} → ${latest} for Transfer logs (this may take a while)`;
 
-function showDetail(h, owner){
-  detailEl.innerHTML = `<div style="display:flex;justify-content:space-between"><div><div style="font-weight:700">${h.name}</div><div class="small">${h.contract} • ID ${h.tokenId}</div></div><div style="text-align:right"><div class="small">Held</div><div style="font-weight:800">${h.count}</div></div></div><div id="instances" class="grid"></div>`;
-  const grid = document.getElementById('instances');
-  // create 'count' cards using available tx metadata where possible
-  for(let i=0;i<h.count;i++){
-    const c = document.createElement('div'); c.className='card';
-    const img = h.image || 'https://via.placeholder.com/300';
-    c.innerHTML = `<img src="${img}" onerror="this.src='https://via.placeholder.com/300'"/><div class="small" style="margin-top:8px">${h.name} #${h.tokenId}</div>`;
-    grid.appendChild(c);
+    // Topics
+    const transfer721Topic = ethers.id("Transfer(address,address,uint256)");
+    const transfer1155Single = ethers.id("TransferSingle(address,address,address,uint256,uint256)");
+    const transfer1155Batch = ethers.id("TransferBatch(address,address,address,uint256[],uint256[])");
+
+    // Build filters for logs where from or to equals address
+    const addrTopic = ethers.getAddress(address).toLowerCase();
+    // Ethers expects topics as hex-encoded; addresses are padded to 32 bytes
+    const addrTopicPadded = ethers.ZeroAddress === undefined ? ethers.hexZeroPad(address,32) : ethers.hexZeroPad(address,32);
+
+    // Helper to fetch logs with a filter; some RPCs limit range, so we chunk if needed
+    async function getLogsChunked(filter, start, end, chunkSize=50000){
+      const logs = [];
+      let s = start;
+      while(s <= end){
+        const e = Math.min(s + chunkSize - 1, end);
+        const f = {...filter, fromBlock: s, toBlock: e};
+        try{
+          const chunk = await provider.getLogs(f);
+          logs.push(...chunk);
+        } catch(err){
+          // If RPC rejects large ranges, reduce chunk size
+          if(chunkSize > 1000){
+            return getLogsChunked(filter, start, end, Math.max(1000, Math.floor(chunkSize/2)));
+          } else {
+            throw err;
+          }
+        }
+        s = e + 1;
+      }
+      return logs;
+    }
+
+    // Filters: topic0 = Transfer (721) and topic1 or topic2 equals address (from or to)
+    // For ERC-721 Transfer: topics = [topic0, from, to, tokenId]
+    const filter721From = {topics: [transfer721Topic, ethers.hexZeroPad(address,32)], fromBlock, toBlock: latest};
+    const filter721To = {topics: [transfer721Topic, null, ethers.hexZeroPad(address,32)], fromBlock, toBlock: latest};
+
+    // For ERC-1155 TransferSingle: topics = [topic0, operator, from, to]
+    const filter1155From = {topics: [transfer1155Single, null, ethers.hexZeroPad(address,32)], fromBlock, toBlock: latest};
+    const filter1155To = {topics: [transfer1155Single, null, null, ethers.hexZeroPad(address,32)], fromBlock, toBlock: latest};
+
+    // For ERC-1155 TransferBatch similar topics
+    const filter1155BatchFrom = {topics: [transfer1155Batch, null, ethers.hexZeroPad(address,32)], fromBlock, toBlock: latest};
+    const filter1155BatchTo = {topics: [transfer1155Batch, null, null, ethers.hexZeroPad(address,32)], fromBlock, toBlock: latest};
+
+    statusEl.textContent = 'Fetching ERC-721 logs...';
+    const logs721From = await getLogsChunked(filter721From, fromBlock, latest);
+    const logs721To = await getLogsChunked(filter721To, fromBlock, latest);
+
+    statusEl.textContent = 'Fetching ERC-1155 logs...';
+    const logs1155From = await getLogsChunked(filter1155From, fromBlock, latest).catch(()=>[]);
+    const logs1155To = await getLogsChunked(filter1155To, fromBlock, latest).catch(()=>[]);
+    const logs1155BatchFrom = await getLogsChunked(filter1155BatchFrom, fromBlock, latest).catch(()=>[]);
+    const logs1155BatchTo = await getLogsChunked(filter1155BatchTo, fromBlock, latest).catch(()=>[]);
+
+    const allLogs = [...logs721From, ...logs721To, ...logs1155From, ...logs1155To, ...logs1155BatchFrom, ...logs1155BatchTo];
+
+    if(allLogs.length === 0){
+      listEl.innerHTML = '<div class="small">No Transfer logs found in the scanned range.</div>';
+      statusEl.textContent = 'Done';
+      return;
+    }
+
+    // Collect candidate contracts and tokenIds
+    const candidates = {}; // key = contract|tokenId -> {contract, tokenId, typeCandidates}
+    for(const log of allLogs){
+      const addrContract = log.address.toLowerCase();
+      const topic0 = log.topics[0];
+      if(topic0 === transfer721Topic){
+        // ERC-721: topics[1]=from, topics[2]=to, topics[3]=tokenId
+        const tokenIdHex = log.topics[3];
+        const tokenId = ethers.toBigInt(tokenIdHex).toString();
+        const key = addrContract + '|' + tokenId;
+        candidates[key] = candidates[key] || {contract: addrContract, tokenId, types: new Set()};
+        candidates[key].types.add('ERC-721');
+      } else if(topic0 === transfer1155Single){
+        // TransferSingle: data contains (id, value) after topics; topics[2]=from, topics[3]=to
+        // decode using interface
+        const iface = new ethers.Interface([
+          "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)"
+        ]);
+        try{
+          const parsed = iface.parseLog(log);
+          const tokenId = parsed.args.id.toString();
+          const key = addrContract + '|' + tokenId;
+          candidates[key] = candidates[key] || {contract: addrContract, tokenId, types: new Set()};
+          candidates[key].types.add('ERC-1155');
+        } catch(e){}
+      } else if(topic0 === transfer1155Batch){
+        // TransferBatch: ids[] and values[] in data
+        const iface = new ethers.Interface([
+          "event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)"
+        ]);
+        try{
+          const parsed = iface.parseLog(log);
+          const ids = parsed.args.ids;
+          for(const id of ids){
+            const tokenId = id.toString();
+            const key = addrContract + '|' + tokenId;
+            candidates[key] = candidates[key] || {contract: addrContract, tokenId, types: new Set()};
+            candidates[key].types.add('ERC-1155');
+          }
+        } catch(e){}
+      }
+    }
+
+    statusEl.textContent = `Found ${Object.keys(candidates).length} candidate tokens. Verifying balances...`;
+
+    // Verify holdings by calling ownerOf or balanceOf
+    const results = [];
+    for(const key of Object.keys(candidates)){
+      const c = candidates[key];
+      const contractAddress = c.contract;
+      const tokenId = c.tokenId;
+      const types = Array.from(c.types);
+      let count = 0;
+      let tokenType = types.includes('ERC-1155') ? 'ERC-1155' : 'ERC-721';
+      try{
+        if(tokenType === 'ERC-721'){
+          const contract = new ethers.Contract(contractAddress, ERC721_ABI, provider);
+          try{
+            const owner = await contract.ownerOf(tokenId);
+            if(owner && owner.toLowerCase() === address.toLowerCase()){
+              count = 1;
+            } else {
+              count = 0;
+            }
+          } catch(e){
+            // ownerOf may revert for burned or non-existent token
+            count = 0;
+          }
+        } else {
+          const contract = new ethers.Contract(contractAddress, ERC1155_ABI, provider);
+          try{
+            const bal = await contract.balanceOf(address, tokenId);
+            // bal is BigInt-like
+            count = Number(bal || 0);
+          } catch(e){
+            count = 0;
+          }
+        }
+      } catch(e){
+        count = 0;
+      }
+      if(count > 0){
+        // try to fetch metadata
+        let image = '';
+        let name = `${contractAddress} #${tokenId}`;
+        try{
+          if(tokenType === 'ERC-721'){
+            const c721 = new ethers.Contract(contractAddress, ERC721_ABI, provider);
+            const uri = await c721.tokenURI(tokenId).catch(()=>null);
+            if(uri) {
+              const resolved = ipfsToHttp(uri);
+              // attempt to fetch metadata JSON
+              try{
+                const metaRes = await fetch(resolved);
+                if(metaRes.ok){
+                  const meta = await metaRes.json();
+                  image = ipfsToHttp(meta.image || meta.image_url || '');
+                  name = meta.name || name;
+                }
+              }catch(e){}
+            }
+          } else {
+            const c1155 = new ethers.Contract(contractAddress, ERC1155_ABI, provider);
+            const uri = await c1155.uri(tokenId).catch(()=>null);
+            if(uri){
+              // ERC-1155 URIs may contain {id} placeholder; replace with hex padded lowercase without 0x
+              const idHex = BigInt(tokenId).toString(16).padStart(64,'');
+              const replaced = uri.replace('{id}', idHex);
+              const resolved = ipfsToHttp(replaced);
+              try{
+                const metaRes = await fetch(resolved);
+                if(metaRes.ok){
+                  const meta = await metaRes.json();
+                  image = ipfsToHttp(meta.image || meta.image_url || '');
+                  name = meta.name || name;
+                }
+              }catch(e){}
+            }
+          }
+        } catch(e){}
+        results.push({contract: contractAddress, tokenId, tokenType, count, image, name});
+      }
+    }
+
+    if(results.length === 0){
+      listEl.innerHTML = '<div class="small">No current holdings found in scanned range.</div>';
+      statusEl.textContent = 'Done';
+      return;
+    }
+
+    // Render list
+    listEl.innerHTML = '';
+    results.sort((a,b)=> b.count - a.count);
+    for(const r of results){
+      const div = document.createElement('div');
+      div.className = 'item';
+      div.innerHTML = `<img class="thumb" src="${r.image||'https://via.placeholder.com/300'}" onerror="this.src='https://via.placeholder.com/300'"/>
+        <div class="meta"><div class="title">${safeText(r.name)}</div><div class="sub">${r.contract} • ${r.tokenType} • ID ${r.tokenId}</div></div>
+        <div class="count">${r.count}</div>`;
+      div.onclick = ()=> showDetail(r);
+      listEl.appendChild(div);
+    }
+    statusEl.textContent = `Found ${results.length} held token types.`;
+  } catch(err){
+    statusEl.innerHTML = `<span class="error">Error: ${safeText(err.message)}</span>`;
   }
 }
+
+function showDetail(r){
+  detailEl.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-weight:700">${safeText(r.name)}</div>
+      <div class="small">${r.contract} • ID ${r.tokenId} • ${r.tokenType}</div>
+    </div>
+    <div style="text-align:right">
+      <div class="small">Held</div>
+      <div style="font-weight:800;font-size:18px">${r.count}</div>
+    </div>
+  </div>
+  <div class="grid" id="instances"></div>`;
+  const grid = document.getElementById('instances');
+  for(let i=0;i<r.count;i++){
+    const card = document.createElement('div'); card.className='card';
+    card.innerHTML = `<img src="${r.image||'https://via.placeholder.com/300'}" onerror="this.src='https://via.placeholder.com/300'"/>
+      <div class="small" style="font-weight:600;margin-top:8px">${safeText(r.name)} #${r.tokenId}</div>`;
+    grid.appendChild(card);
+  }
+}
+
+scanBtn.addEventListener('click', scan);
 </script>
 </body>
 </html>
