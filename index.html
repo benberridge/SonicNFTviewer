@@ -1,1 +1,266 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>NFT Holdings Viewer</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    :root{--bg:#f7f8fb;--card:#fff;--muted:#666}
+    body{font-family:Inter,system-ui,Arial,sans-serif;background:var(--bg);margin:20px;color:#111}
+    .wrap{max-width:980px;margin:0 auto}
+    header{display:flex;gap:12px;align-items:center;margin-bottom:14px}
+    input[type=text]{padding:8px;border-radius:6px;border:1px solid #d6d9e0;width:320px}
+    button{padding:8px 12px;border-radius:6px;border:0;background:#2563eb;color:#fff;cursor:pointer}
+    .row{display:flex;gap:16px}
+    .panel{background:var(--card);padding:12px;border-radius:10px;box-shadow:0 1px 4px rgba(20,20,40,0.04)}
+    #list{width:360px;max-height:640px;overflow:auto}
+    .item{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
+    .item:hover{background:#f1f5ff}
+    .thumb{width:56px;height:56px;border-radius:8px;object-fit:cover;background:#eee}
+    .meta{flex:1;min-width:0}
+    .title{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sub{font-size:12px;color:var(--muted);margin-top:4px}
+    .count{font-weight:700;color:#0f172a}
+    #detail{flex:1;min-height:300px;max-height:640px;overflow:auto}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-top:12px}
+    .card{background:#fff;border-radius:8px;padding:8px;text-align:center;box-shadow:0 1px 3px rgba(20,20,40,0.04)}
+    .card img{width:100%;height:120px;object-fit:cover;border-radius:6px}
+    .small{font-size:12px;color:var(--muted);margin-top:6px}
+    .note{font-size:13px;color:var(--muted);margin-top:8px}
+    .error{color:#b91c1c}
+    footer{margin-top:14px;font-size:13px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h3>NFT Holdings Viewer (address input)</h3>
+    <div class="note">Paste a wallet address and your Alchemy API key, then click <b>Fetch</b>. The list shows each token and how many of that token the wallet holds. Click a token to view its instances.</div>
 
+    <div style="margin-top:12px" class="row">
+      <div class="panel" style="flex:1">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="address" type="text" placeholder="0x... wallet address (paste here)"/>
+          <input id="apiKey" type="text" placeholder="Alchemy API key" style="width:320px"/>
+          <button id="fetchBtn">Fetch</button>
+        </div>
+        <div id="status" class="note"></div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px" class="row">
+      <div id="listPanel" class="panel" style="width:380px">
+        <h4 style="margin:0 0 8px 0">Tokens</h4>
+        <div id="list" aria-live="polite"></div>
+      </div>
+
+      <div id="detailPanel" class="panel" style="flex:1">
+        <h4 style="margin:0 0 8px 0">Selected token</h4>
+        <div id="detail">
+          <div class="note">Select a token from the left to view its instances.</div>
+        </div>
+      </div>
+    </div>
+
+    <footer>Built for quick inspection. Replace Alchemy endpoint if you use another provider.</footer>
+  </div>
+
+<script>
+/*
+  Behavior:
+  - Uses Alchemy "getNFTs" endpoint to list NFTs for an owner.
+  - Groups by contract address + tokenId and shows quantity (balance for ERC-1155 if provided).
+  - Clicking a list item fetches and displays that token's instances (repeats image count times).
+  - IPFS URIs are converted to HTTP via ipfs.io gateway; images fallback to placeholder on error.
+  - Minimal error handling and pagination awareness (pageSize=100). For large wallets, pagination would be needed.
+*/
+
+const fetchBtn = document.getElementById('fetchBtn');
+const addrInput = document.getElementById('address');
+const apiInput = document.getElementById('apiKey');
+const listEl = document.getElementById('list');
+const detailEl = document.getElementById('detail');
+const statusEl = document.getElementById('status');
+
+function ipfsToHttp(url){
+  if(!url) return '';
+  if(url.startsWith('ipfs://')) return 'https://ipfs.io/ipfs/'+url.slice(7);
+  // some URIs are like ipfs://ipfs/<hash>
+  if(url.includes('ipfs/') && url.startsWith('ipfs')) return 'https://ipfs.io/'+url;
+  return url;
+}
+
+function safeText(s){ return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function fetchNFTsForOwner(owner, apiKey){
+  // Alchemy getNFTs endpoint (Ethereum mainnet). If you use another chain or provider, change the base URL.
+  const base = `https://eth-mainnet.g.alchemy.com/nft/v2/${apiKey}/getNFTs`;
+  const url = `${base}?owner=${owner}&pageSize=100`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('API error: '+res.status+' '+res.statusText);
+  return res.json();
+}
+
+function clearList(){
+  listEl.innerHTML = '';
+  detailEl.innerHTML = '<div class="note">Select a token from the left to view its instances.</div>';
+}
+
+function renderList(grouped){
+  listEl.innerHTML = '';
+  if(Object.keys(grouped).length === 0){
+    listEl.innerHTML = '<div class="note">No NFTs found for this address.</div>';
+    return;
+  }
+  for(const key of Object.keys(grouped)){
+    const item = grouped[key];
+    const div = document.createElement('div');
+    div.className = 'item';
+    div.dataset.key = key;
+    div.innerHTML = `
+      <img class="thumb" src="${item.image||'https://via.placeholder.com/300'}" onerror="this.src='https://via.placeholder.com/300'"/>
+      <div class="meta">
+        <div class="title">${safeText(item.title)}</div>
+        <div class="sub">${safeText(item.contractName || item.contractAddress)} • ${safeText(item.tokenType||'')} • ID ${safeText(item.tokenId)}</div>
+      </div>
+      <div class="count">${item.count}</div>
+    `;
+    div.onclick = ()=> selectToken(item);
+    listEl.appendChild(div);
+  }
+}
+
+function normalizeNftEntry(n){
+  // Try to extract a display image and title from Alchemy response shapes
+  const media = n.media && n.media[0];
+  const image = media?.gateway || n.metadata?.image || n.raw?.metadata?.image || n.tokenUri?.gateway || '';
+  const title = n.title || n.metadata?.name || n.raw?.metadata?.name || `${n.contract?.name || n.contract?.address || 'Unknown'}`;
+  return {
+    contractAddress: n.contract?.address || n.contractAddress || '',
+    contractName: n.contract?.name || '',
+    tokenId: n.id?.tokenId || n.tokenId || '',
+    tokenType: n.id?.tokenMetadata?.tokenType || n.tokenType || '',
+    image: ipfsToHttp(image),
+    title,
+    raw: n
+  };
+}
+
+function groupByToken(nfts){
+  // Group by contract + tokenId. Use balance if present (ERC-1155).
+  const map = {};
+  (nfts||[]).forEach(n=>{
+    const norm = normalizeNftEntry(n);
+    const key = `${norm.contractAddress.toLowerCase()}|${norm.tokenId}`;
+    if(!map[key]){
+      map[key] = {
+        contractAddress: norm.contractAddress,
+        contractName: norm.contractName,
+        tokenId: norm.tokenId,
+        tokenType: norm.tokenType,
+        image: norm.image,
+        title: norm.title,
+        rawItems: [],
+        count: 0
+      };
+    }
+    // Alchemy sometimes provides balance for ERC-1155 in n.balance
+    const balance = (n.balance !== undefined && n.balance !== null) ? Number(n.balance) : 1;
+    map[key].count += isNaN(balance) ? 1 : balance;
+    map[key].rawItems.push(n);
+  });
+  return map;
+}
+
+async function selectToken(item){
+  // When a token is selected, fetch more data if needed and render instances.
+  detailEl.innerHTML = '<div class="note">Loading token details...</div>';
+  try{
+    // We already have raw items from the initial fetch. Use them to render instances.
+    // For ERC-721 there will be one instance; for ERC-1155 there may be a balance field.
+    const rawItems = item.rawItems || [];
+    // Determine count
+    let total = item.count || 0;
+    // Determine image and metadata to display per instance
+    const image = item.image || 'https://via.placeholder.com/300';
+    const title = item.title || `${item.contractName || item.contractAddress} #${item.tokenId}`;
+    // Render header
+    detailEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-weight:700">${safeText(title)}</div>
+          <div class="small">${safeText(item.contractAddress)} • ID ${safeText(item.tokenId)} • ${safeText(item.tokenType)}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="small">Held</div>
+          <div style="font-weight:800;font-size:18px">${total}</div>
+        </div>
+      </div>
+      <div id="instances" class="grid"></div>
+    `;
+    const grid = document.getElementById('instances');
+
+    // If rawItems include metadata per instance, use it; otherwise repeat the same image total times.
+    // For ERC-1155 Alchemy returns a single raw item with balance; for ERC-721 there is one item.
+    // We'll create 'total' cards. If rawItems length >= total, use each raw item; else repeat.
+    for(let i=0;i<Math.max(1,total);i++){
+      const card = document.createElement('div');
+      card.className = 'card';
+      // try to pick a raw item for this index
+      const raw = rawItems[i] || rawItems[0] || {};
+      const img = ipfsToHttp(raw.media?.[0]?.gateway || raw.metadata?.image || raw.raw?.metadata?.image || image);
+      const name = raw.metadata?.name || raw.raw?.metadata?.name || `${title} #${i+1}`;
+      const tokenUri = raw.tokenUri?.gateway || raw.tokenUri?.raw || raw.tokenUri || '';
+      card.innerHTML = `
+        <img src="${img||'https://via.placeholder.com/300'}" onerror="this.src='https://via.placeholder.com/300'"/>
+        <div class="small" style="font-weight:600;margin-top:8px">${safeText(name)}</div>
+        <div class="small">${safeText(tokenUri)}</div>
+      `;
+      grid.appendChild(card);
+    }
+
+  } catch(err){
+    detailEl.innerHTML = `<div class="error">Error loading token details: ${safeText(err.message)}</div>`;
+  }
+}
+
+fetchBtn.addEventListener('click', async ()=>{
+  const addr = (addrInput.value||'').trim();
+  const apiKey = (apiInput.value||'').trim();
+  clearList();
+  statusEl.textContent = '';
+  if(!addr) return statusEl.innerHTML = '<span class="error">Enter a wallet address.</span>';
+  if(!apiKey) return statusEl.innerHTML = '<span class="error">Enter your Alchemy API key.</span>';
+  statusEl.textContent = 'Fetching NFTs...';
+  try{
+    const data = await fetchNFTsForOwner(addr, apiKey);
+    // Alchemy returns ownedNfts array
+    const nfts = data.ownedNfts || [];
+    const grouped = groupByToken(nfts);
+    // Convert grouped map to array for rendering; keep rawItems for selection
+    const arr = Object.keys(grouped).map(k=>{
+      const g = grouped[k];
+      // attach rawItems for selection convenience
+      return {
+        ...g,
+        rawItems: g.rawItems,
+        count: g.count
+      };
+    });
+    // Sort by count desc then name
+    arr.sort((a,b)=> b.count - a.count || (a.title||'').localeCompare(b.title||''));
+    // Render
+    // But renderList expects grouped keyed by unique key; create object
+    const keyed = {};
+    arr.forEach(a=>{
+      const key = `${a.contractAddress.toLowerCase()}|${a.tokenId}`;
+      keyed[key] = a;
+    });
+    renderList(keyed);
+    statusEl.textContent = `Found ${nfts.length} NFT entries (${arr.length} unique tokens).`;
+  } catch(err){
+    statusEl.innerHTML = `<span class="error">Fetch failed: ${safeText(err.message)}</span>`;
+  }
+});
+</script>
+</body>
+</html>
