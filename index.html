@@ -5,31 +5,63 @@
   <title>Sonic On‑chain NFT Scanner</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- ethers v6 (fixes “ethers is not defined”) -->
-  <script src="https://cdn.jsdelivr.net/npm/ethers@6.11.1/dist/ethers.min.js"
-          integrity="sha384-v6xCDN-ethers-6-11-1"
-          crossorigin="anonymous"></script>
+  <!--
+    1) Primary ethers v6 UMD (global window.ethers).
+       This should succeed in most environments.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.11.1/dist/ethers.umd.min.js"></script>
+
+  <!--
+    2) Resilient fallback: if the primary CDN fails, try unpkg.
+       This ensures window.ethers exists before our app runs.
+  -->
+  <script>
+    (function ensureEthersLoaded() {
+      function inject(src, onload, onerror) {
+        var s = document.createElement("script");
+        s.src = src;
+        s.async = false;
+        s.onload = onload;
+        s.onerror = onerror;
+        document.head.appendChild(s);
+      }
+      function tryFallback() {
+        if (typeof window.ethers !== "undefined") return;
+        inject(
+          "https://unpkg.com/ethers@6.11.1/dist/ethers.umd.min.js",
+          function () { console.log("Loaded ethers from unpkg fallback."); },
+          function () { console.error("All ethers.js CDN fallbacks failed."); }
+        );
+      }
+      // If the primary load fails (blocked network/CSP/SRI, etc.), add a fallback
+      if (typeof window.ethers === "undefined") {
+        // Wait a tick in case the primary <script> just hasn’t executed yet
+        setTimeout(tryFallback, 100);
+      }
+    })();
+  </script>
 
   <style>
     :root { --bg:#0b0e13; --panel:#131823; --txt:#e6e9ef; --muted:#9aa3b2; --accent:#66e7ff; --danger:#ff6b6b; }
-    body { margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; background:var(--bg); color:var(--txt); }
-    .wrap { max-width: 920px; margin: 2rem auto; padding: 0 1rem; }
-    h1 { font-size:1.6rem; margin:.25rem 0 1rem; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--txt); }
+    .wrap { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size:1.6rem; margin:.25rem 0 .5rem; }
+    .muted { color:var(--muted); }
+    .small { font-size:.9rem; }
     .card { background:var(--panel); border:1px solid #202636; border-radius:12px; padding:1rem; }
     label { display:block; font-size:.9rem; color:var(--muted); margin:.75rem 0 .25rem; }
     input[type="text"] { width:100%; padding:.7rem .8rem; border:1px solid #263044; border-radius:10px; background:#0f1420; color:var(--txt); }
     .row { display:grid; grid-template-columns: 1fr auto; gap:.75rem; align-items:end; }
     button { padding:.75rem 1rem; background:var(--accent); color:#00242b; border:0; border-radius:10px; font-weight:600; cursor:pointer; }
     button[disabled] { opacity:.6; cursor:not-allowed; }
-    .muted { color:var(--muted); }
-    .error { color:var(--danger); margin-top:.5rem; }
     .cols { display:grid; gap:1rem; grid-template-columns: 1fr 1fr; margin-top:1rem; }
-    .list { min-height: 140px; border:1px dashed #2b3448; border-radius:10px; padding:.75rem; }
-    @media (max-width: 840px){ .cols { grid-template-columns: 1fr; } }
-    .small { font-size:.85rem; }
+    .list { min-height: 160px; border:1px dashed #2b3448; border-radius:10px; padding:.75rem; }
+    .error { color:var(--danger); margin-top:.5rem; }
+    @media (max-width: 860px){ .cols { grid-template-columns: 1fr; } }
+    .token { padding:.45rem .6rem; border:1px solid #263044; border-radius:8px; margin-bottom:.5rem; }
   </style>
 </head>
-
 <body>
   <div class="wrap">
     <header>
@@ -38,7 +70,7 @@
     </header>
 
     <section class="card">
-      <!-- RPC is fixed & hidden—not required to enter -->
+      <!-- Fixed RPC: no user entry required -->
       <input type="hidden" id="rpcUrl" value="https://rpc.soniclabs.com" />
 
       <label for="wallet">Wallet address</label>
@@ -63,110 +95,90 @@
   </div>
 
   <script>
-    // --- Helpers -------------------------------------------------------------
+    // ---------- Utilities ----------
     const $ = (id) => document.getElementById(id);
-    const status = (msg) => { $("status").textContent = msg ?? ""; };
-    const fail = (msg) => { $("error").textContent = msg ?? ""; };
-    const clearMessages = () => { status(""); fail(""); };
+    const setStatus = (msg) => { $("status").textContent = msg ?? ""; };
+    const setError  = (msg) => { $("error").textContent  = msg ?? ""; };
+    const clearMsgs = () => { setStatus(""); setError(""); };
+    const disable   = (el, on = true) => el && (el.disabled = !!on);
 
-    // Basic debounce to prevent double-click scans
-    const disable = (el, on=true) => { el.disabled = !!on; };
-
-    // Validate a hex EOA / contract address
-    function isAddress(addr) {
-      try {
-        return !!ethers.isAddress(addr);
-      } catch {
+    function requireEthersOrShow() {
+      if (typeof window.ethers === "undefined") {
+        setError("Failed to load ethers.js. Check network/CSP or self‑host ethers. See console for details.");
+        console.error("window.ethers is undefined. Verify CDN accessibility or CSP.");
         return false;
       }
+      return true;
     }
 
-    // Build provider once, from fixed RPC
+    // Validate hex EOA/contract address (ethers v6 global API)
+    function isAddress(addr) {
+      try { return window.ethers.isAddress(addr); } catch { return false; }
+    }
+
     function createProvider() {
-      const rpc = $("rpcUrl").value.trim();
-      // ethers v6: use JsonRpcProvider
-      return new ethers.JsonRpcProvider(rpc);
+      const rpc = $("rpcUrl").value.trim();                 // Fixed Sonic RPC
+      return new window.ethers.JsonRpcProvider(rpc);        // v6 provider
     }
 
-    // --- Minimal on-chain scan stub -----------------------------------------
+    // ---------- Scan Logic (stub you can extend) ----------
     async function scanAddress() {
-      clearMessages();
-      const btn = $("scanBtn");
+      clearMsgs();
+      if (!requireEthersOrShow()) return;
+
       const wallet = $("wallet").value.trim();
+      if (!wallet)      return setError("Please enter a wallet address.");
+      if (!isAddress(wallet)) return setError("That doesn’t look like a valid address.");
 
-      if (!wallet) {
-        fail("Please enter a wallet address.");
-        return;
-      }
-      if (!isAddress(wallet)) {
-        fail("That doesn’t look like a valid address.");
-        return;
-      }
-
+      const btn = $("scanBtn");
       disable(btn, true);
-      status("Connecting to RPC and validating address…");
+      setStatus("Connecting to RPC and validating address…");
+
       try {
         const provider = createProvider();
 
-        // Ping the chain to ensure RPC works
-        const [network, block] = await Promise.all([
+        // Check RPC health quickly
+        const [network, latest] = await Promise.all([
           provider.getNetwork(),
           provider.getBlockNumber()
         ]);
+        setStatus(`Connected to chain ${Number(network.chainId)} • latest block ${latest}. Scanning…`);
 
-        status(`Connected to chain ${Number(network.chainId)} • latest block ${block}. Scanning…`);
-
-        // TODO: Replace the logic below with your actual NFT discovery:
-        //  - Query Transfer(address,address,uint256) logs for ERC‑721
-        //  - Query TransferSingle/TransferBatch for ERC‑1155
-        //  - Narrow by topics with the wallet in from/to
-        // For now, we show a placeholder result so the UI updates consistently.
+        // TODO: Replace the placeholder below with real NFT discovery:
+        //  - Query ERC‑721 Transfer logs
+        //  - Query ERC‑1155 TransferSingle/TransferBatch logs
+        //  - Use topics with the wallet in from/to to narrow event scans
         const tokensEl = $("tokens");
+        tokensEl.textContent = "";
         tokensEl.classList.remove("muted");
-        tokensEl.textContent = ""; // clear
 
-        const placeholder = document.createElement("div");
-        placeholder.innerHTML = `
-          <div style="padding:.4rem .5rem;border:1px solid #263044;border-radius:8px;">
-            <div><strong>Sample Token</strong> (replace with real results)</div>
-            <div class="small muted">Chain: ${Number(network.chainId)} • Block: ${block}</div>
-          </div>`;
-        tokensEl.appendChild(placeholder);
+        const sample = document.createElement("div");
+        sample.className = "token";
+        sample.innerHTML = `
+          <div><strong>Sample Token</strong> (replace with actual results)</div>
+          <div class="small muted">Chain: ${Number(network.chainId)} • Block: ${latest}</div>
+        `;
+        tokensEl.appendChild(sample);
 
         $("selected").textContent = "Click a token to view instances (not wired yet).";
-
-        status("Scan complete.");
+        setStatus("Scan complete.");
       } catch (err) {
         console.error(err);
-        // Show a concise error, but keep details in console
-        fail(err?.message || "Scan failed. See console for details.");
+        setError(err?.message || "Scan failed. See console for details.");
       } finally {
         disable(btn, false);
       }
     }
 
-    // --- Wire UI -------------------------------------------------------------
+    // ---------- Wire UI ----------
     window.addEventListener("DOMContentLoaded", () => {
-      // Ensure ethers is available early; prevents “ethers is not defined”
-      if (typeof ethers === "undefined") {
-        fail("Failed to load ethers.js. Check the CDN script tag.");
+      if (!requireEthersOrShow()) {
+        // If you consistently see this, either relax CSP, add CDN to script-src, or self‑host ethers.umd.min.js locally.
         return;
       }
-
-      // Optional: Pre-fill an example address for quick testing
-      // $("wallet").value = "0x0000000000000000000000000000000000000000";
-
-      $("scanBtn").addEventListener("click", (e) => {
-        e.preventDefault();
-        scanAddress();
-      });
-
-      // Press Enter to scan
+      $("scanBtn").addEventListener("click", (e) => { e.preventDefault(); scanAddress(); });
       $("wallet").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          $("scanBtn").click();
-        }
+        if (e.key === "Enter") { e.preventDefault(); scanAddress(); }
       });
     });
   </script>
