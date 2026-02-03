@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Sonic NFT Collection Discovery (Mint‑only, On‑chain RPC)</title>
+  <title>Sonic Wallet NFT Scanner (from curated contract list)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Load ethers v6 UMD (global window.ethers). Fallback to unpkg if needed. -->
+  <!-- ethers v6 UMD (global window.ethers) + fallback -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.11.1/dist/ethers.umd.min.js"></script>
   <script>
     if (typeof window.ethers === "undefined") {
@@ -19,25 +19,24 @@
     :root { --bg:#0b0e13; --panel:#131823; --txt:#e6e9ef; --muted:#9aa3b2; --accent:#66e7ff; --danger:#ff6b6b; --line:#202636; }
     * { box-sizing: border-box; }
     body { margin:0; font-family:system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--txt); }
-    .wrap { max-width: 1080px; margin: 2rem auto; padding: 0 1rem; }
+    .wrap { max-width: 1060px; margin: 2rem auto; padding: 0 1rem; }
     h1 { font-size:1.6rem; margin:.25rem 0 .5rem; }
     .muted { color:var(--muted); }
     .small { font-size:.9rem; }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:1rem; }
     label { display:block; font-size:.9rem; color:var(--muted); margin:.75rem 0 .25rem; }
-    input[type="text"], input[type="number"] {
-      width:100%; padding:.7rem .8rem; border:1px solid #263044; border-radius:10px; background:#0f1420; color:var(--txt);
-    }
-    .row { display:grid; grid-template-columns: repeat(5, minmax(160px, 1fr)); gap:.75rem; align-items:end; }
-    .row2 { display:grid; grid-template-columns: 1fr auto auto auto auto; gap:.75rem; align-items:end; margin-top:.75rem; }
+    input[type="text"], input[type="number"] { width:100%; padding:.7rem .8rem; border:1px solid #263044; border-radius:10px; background:#0f1420; color:var(--txt); }
+    .row { display:grid; grid-template-columns: 1fr auto auto; gap:.75rem; align-items:end; }
+    .row-adv { display:grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap:.75rem; margin-top:.75rem; }
     button { padding:.75rem 1rem; background:var(--accent); color:#00242b; border:0; border-radius:10px; font-weight:600; cursor:pointer; }
     button[disabled] { opacity:.6; cursor:not-allowed; }
-    .cols { display:grid; gap:1rem; grid-template-columns: 1fr 1fr; margin-top:1rem; }
-    .list { min-height: 260px; border:1px dashed #2b3448; border-radius:10px; padding:.75rem; overflow:auto; }
+    .cols { display:grid; gap:1rem; grid-template-columns: 1.1fr .9fr; margin-top:1rem; }
+    .list { min-height: 240px; border:1px dashed #2b3448; border-radius:10px; padding:.75rem; overflow:auto; }
     .error { color:var(--danger); margin-top:.5rem; white-space:pre-wrap; }
-    @media (max-width: 1040px){ .row { grid-template-columns: 1fr 1fr; } .row2 { grid-template-columns: 1fr auto auto; } .cols { grid-template-columns: 1fr; } }
-    .token { padding:.5rem .6rem; border:1px solid #263044; border-radius:8px; margin-bottom:.5rem; }
-    .token .hdr { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+    @media (max-width: 980px){ .cols { grid-template-columns: 1fr; } .row { grid-template-columns: 1fr auto; } .row-adv { grid-template-columns: 1fr 1fr; } }
+    .token { padding:.5rem .6rem; border:1px solid #263044; border-radius:8px; margin-bottom:.5rem; cursor:pointer; }
+    .token:hover { border-color:#345; background:#0f1420; }
+    .hdr { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
     .pill { display:inline-block; background:#0f1420; border:1px solid #263044; border-radius:999px; padding:.1rem .5rem; font-size:.75rem; color:#9fc2ca; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
     progress { width: 100%; height: 10px; }
@@ -49,55 +48,52 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>Sonic NFT Collection Discovery</h1>
+      <h1>Sonic Wallet NFT Scanner</h1>
       <p class="muted small">
-        Finds all **NFT contracts that have ever minted** on <strong>Sonic</strong> by scanning only mint events on-chain (no explorer API).
-        RPC is fixed to <code class="mono">https://rpc.soniclabs.com</code>.  
-        Optional: verify standards via ERC‑165 (<code>supportsInterface</code>).
+        Uses a curated list of Sonic NFT collection contracts (<code class="mono">./data/sonic_nft_collections.json</code>) to scan a wallet quickly.
+        RPC is fixed to <code class="mono">https://rpc.soniclabs.com</code>.
       </p>
     </header>
 
     <section class="card">
-      <!-- Fixed Sonic RPC (hidden) -->
       <input type="hidden" id="rpcUrl" value="https://rpc.soniclabs.com" />
 
-      <!-- Controls -->
+      <label for="wallet">Wallet address</label>
       <div class="row">
-        <div>
-          <label for="fromBlock">From block</label>
-          <input id="fromBlock" class="mono" type="number" min="0" step="1" placeholder="0 (genesis)" />
-        </div>
-        <div>
-          <label for="toBlock">To block (blank = latest)</label>
-          <input id="toBlock" class="mono" type="number" min="0" step="1" placeholder="latest" />
-        </div>
-        <div>
-          <label for="chunkSize">Initial chunk (blocks)</label>
-          <input id="chunkSize" class="mono" type="number" min="1000" step="1000" value="15000" />
-        </div>
-        <div>
-          <label for="minChunk">Min chunk (blocks)</label>
-          <input id="minChunk" class="mono" type="number" min="500" step="500" value="2000" />
-        </div>
-        <div>
-          <label for="timeoutMs">Request timeout (ms)</label>
-          <input id="timeoutMs" class="mono" type="number" min="5000" step="1000" value="25000" />
-        </div>
-      </div>
-
-      <div class="row2">
-        <div class="kv">
-          <label class="item"><input id="verify165" type="checkbox" checked /> Verify ERC‑165 (label 721/1155)</label>
-          <label class="item"><input id="saveCheckpoints" type="checkbox" checked /> Save checkpoints (resume later)</label>
-          <label class="item"><input id="dedupePerWindow" type="checkbox" checked /> De‑dupe per window</label>
-        </div>
-        <button id="startBtn">Start</button>
+        <input id="wallet" class="mono" type="text" placeholder="0x… wallet address" autocomplete="off" />
+        <button id="scanBtn">Scan</button>
         <button id="stopBtn" style="background:#ffd166;color:#3a2f00;">Stop</button>
-        <button id="exportBtn" style="background:#7ef29d;color:#083f2d;">Export JSON</button>
-        <button id="clearBtn" style="background:#ff9aa2;color:#3a0b11;">Clear cache</button>
       </div>
 
-      <div style="margin-top:.75rem;">
+      <details style="margin-top:.5rem;">
+        <summary class="muted small">List & Advanced</summary>
+        <div class="row-adv">
+          <div>
+            <label for="listUrl">Contract list URL</label>
+            <input id="listUrl" type="text" class="mono" value="./data/sonic_nft_collections.json" />
+          </div>
+          <div>
+            <label for="chunkSize">Initial chunk (blocks)</label>
+            <input id="chunkSize" class="mono" type="number" min="1000" step="1000" value="15000" />
+          </div>
+          <div>
+            <label for="minChunk">Min chunk (blocks)</label>
+            <input id="minChunk" class="mono" type="number" min="500" step="500" value="2000" />
+          </div>
+          <div>
+            <label for="timeoutMs">Request timeout (ms)</label>
+            <input id="timeoutMs" class="mono" type="number" min="5000" step="1000" value="25000" />
+          </div>
+        </div>
+        <div class="kv" style="margin-top:.6rem;">
+          <label class="item"><input id="respectStandard" type="checkbox" checked /> Respect “standard” from JSON (faster)</label>
+          <label class="item"><input id="inferIfMissing" type="checkbox" checked /> If missing, scan both 721 & 1155</label>
+          <label class="item"><input id="verify165" type="checkbox" /> Try ERC‑165 if no hits (slower)</label>
+          <label class="item"><input id="limitContracts" type="checkbox" /> Limit to first N (<input id="limitN" type="number" value="100" class="mono" style="width:80px;">)</label>
+        </div>
+      </details>
+
+      <div style="margin-top:.5rem;">
         <progress id="prog" max="100" value="0"></progress>
       </div>
 
@@ -107,69 +103,51 @@
 
     <section class="cols">
       <div class="card">
-        <div class="hdr" style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.5rem;">
-          <h3 style="margin:0;">Collections Found</h3>
-          <span id="foundPill" class="pill">0</span>
+        <div class="hdr" style="margin-bottom:.5rem;">
+          <h3 style="margin:0;">Tokens Found</h3>
+          <span id="foundPill" class="pill">0 collections</span>
         </div>
-        <div id="collections" class="list muted small">No results yet</div>
+        <div id="tokens" class="list muted small">Load a list and scan a wallet.</div>
       </div>
 
       <div class="card">
-        <h3 style="margin:0 0 .5rem 0;">Notes</h3>
-        <ul class="small muted" style="margin:.2rem 0 .5rem 1rem;">
-          <li>Scans only **mint events**: ERC‑721 `Transfer(from=0x00…)`, ERC‑1155 `TransferSingle/Batch(from=0x00…)`.</li>
-          <li>Use **checkpoints** to split the scan over sessions; click **Start** again to resume.</li>
-          <li>After scan, click **Export JSON** to download the list for your app.</li>
-          <li>Optionally uncheck **ERC‑165 verification** to speed up discovery (you can label later).</li>
-        </ul>
-        <div id="logBox" class="list mono small" style="white-space:pre-wrap;">(log)</div>
+        <div class="hdr" style="margin-bottom:.5rem;">
+          <h3 style="margin:0;">Selected token</h3>
+          <span id="selPill" class="pill">—</span>
+        </div>
+        <div id="selected" class="list muted small">Select a collection to view all tokens the wallet holds for it.</div>
       </div>
     </section>
   </div>
 
   <script>
-    // ======= UI helpers =======
+    // ---------- Utilities ----------
     const $ = (id) => document.getElementById(id);
-    const setStatus = (msg) => $("status").textContent = msg ?? "";
-    const setError  = (msg) => $("error").textContent  = msg ?? "";
+    const setStatus = (m) => $("status").textContent = m || "";
+    const setError  = (m) => $("error").textContent  = m || "";
     const clearMsgs = () => { setStatus(""); setError(""); };
     const fmt = (n) => new Intl.NumberFormat().format(n);
-    const logBox = $("logBox");
-    const log = (s) => { logBox.textContent += (s + "\\n"); logBox.scrollTop = logBox.scrollHeight; };
-    const ZeroAddr = "0x0000000000000000000000000000000000000000";
+    const mono = (s) => `<span class="mono">${s}</span>`;
     let CANCEL = false;
 
-    // ======= Provider =======
-    function getProvider() {
-      const rpc = $("rpcUrl").value.trim();
-      return new window.ethers.JsonRpcProvider(rpc);
-    }
+    // ---------- Provider ----------
+    function getProvider(){ return new window.ethers.JsonRpcProvider($("rpcUrl").value.trim()); }
 
-    // ======= Topics (computed once) =======
+    // ---------- Topics & Interfaces ----------
     const TOPIC_ERC721_TRANSFER = window.ethers.id("Transfer(address,address,uint256)");
     const TOPIC_ERC1155_SINGLE  = window.ethers.id("TransferSingle(address,address,address,uint256,uint256)");
     const TOPIC_ERC1155_BATCH   = window.ethers.id("TransferBatch(address,address,address,uint256[],uint256[])");
-    const ZERO_TOPIC            = window.ethers.zeroPadValue(ZeroAddr, 32);
+    const iface1155 = new window.ethers.Interface([
+      "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)",
+      "event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)",
+      "function supportsInterface(bytes4) view returns (bool)"
+    ]);
+    const IFACE_721  = "0x80ac58cd";
+    const IFACE_1155 = "0xd9b67a26";
 
-    // ======= ERC-165 (optional verification) =======
-    const ERC165_ABI = ["function supportsInterface(bytes4) view returns (bool)"];
-    const IFACE_721  = "0x80ac58cd";   // ERC721
-    const IFACE_1155 = "0xd9b67a26";   // ERC1155
+    const toTopicAddress = (addr) => window.ethers.zeroPadValue(window.ethers.getAddress(addr), 32);
 
-    async function verifyStandard(provider, addr) {
-      try {
-        const c = new window.ethers.Contract(addr, ERC165_ABI, provider);
-        const [is721, is1155] = await Promise.allSettled([
-          c.supportsInterface(IFACE_721),
-          c.supportsInterface(IFACE_1155),
-        ]);
-        if (is721.status === "fulfilled" && is721.value) return "ERC721";
-        if (is1155.status === "fulfilled" && is1155.value) return "ERC1155";
-      } catch {}
-      return "Unknown";
-    }
-
-    // ======= Adaptive getLogs with bisection & timeout =======
+    // ---------- Adaptive getLogs ----------
     function withTimeout(promise, ms) {
       return Promise.race([
         promise,
@@ -177,33 +155,29 @@
       ]);
     }
 
-    async function getLogsAdaptive(provider, baseFilter, from, to, maxSpan, minSpan, timeoutMs, onProgress) {
+    async function getLogsAdaptive(provider, baseFilter, from, to, maxSpan, minSpan, timeoutMs) {
       const out = [];
       let start = from;
       while (start <= to) {
         if (CANCEL) break;
         let span = Math.min(maxSpan, to - start + 1);
         let done = false;
-
         while (!done && !CANCEL) {
           const end = start + span - 1;
-          const f = { ...baseFilter, fromBlock: start, toBlock: end };
           try {
-            const logs = await withTimeout(provider.getLogs(f), timeoutMs);
+            const logs = await withTimeout(provider.getLogs({ ...baseFilter, fromBlock: start, toBlock: end }), timeoutMs);
             out.push(...logs);
-            onProgress && onProgress(end);
             done = true;
           } catch (e) {
             const msg = (e?.info?.error?.message || e?.message || String(e)).toLowerCase();
-            const tooBig = msg.includes("more than") || msg.includes("result set") || msg.includes("too many") || msg.includes("response size") || msg.includes("limit");
-            const timed  = msg.includes("timeout") || msg.includes("timed out") || msg.includes("deadline") || msg.includes("exceeded");
+            const tooBig = msg.includes("more than") || msg.includes("too many") || msg.includes("response size") || msg.includes("result set") || msg.includes("limit");
+            const timed  = msg.includes("timeout") || msg.includes("timed out") || msg.includes("exceeded") || msg.includes("deadline");
             if ((tooBig || timed) && span > minSpan) {
-              span = Math.max(minSpan, Math.floor(span / 2)); // bisect
+              span = Math.max(minSpan, Math.floor(span / 2));
               continue;
             }
-            // log and skip this slice
-            log(`Skipped ${start}-${end}: ${e?.message || e}`);
-            onProgress && onProgress(end);
+            // Log & skip this slice
+            console.warn("Skip subrange", {start, end, msg:e?.message || e});
             done = true;
           }
         }
@@ -212,281 +186,338 @@
       return out;
     }
 
-    // ======= Checkpointing (localStorage) =======
-    const CK = {
-      key: "sonic_mint_discovery_v1",
-      load() {
-        try { return JSON.parse(localStorage.getItem(this.key) || "{}"); } catch { return {}; }
-      },
-      save(obj) {
-        localStorage.setItem(this.key, JSON.stringify(obj));
-      },
-      clear() { localStorage.removeItem(this.key); }
-    };
-
-    // ======= Main scan =======
-    async function runDiscovery() {
-      clearMsgs(); $("collections").classList.remove("muted"); $("collections").textContent = "";
-      const startBtn = $("startBtn"), stopBtn = $("stopBtn"), exportBtn = $("exportBtn");
-      startBtn.disabled = true; stopBtn.disabled = false; exportBtn.disabled = true; CANCEL = false;
-      const prog = $("prog"); prog.value = 0;
-
-      if (typeof window.ethers === "undefined") { setError("ethers.js failed to load."); return; }
-      const provider = getProvider();
-      let latest = await provider.getBlockNumber().catch((e)=>{ setError(e?.message||"RPC error"); return null; });
-      if (latest == null) { startBtn.disabled = false; stopBtn.disabled = true; return; }
-      $("toBlock").placeholder = `${latest} (latest)`;
-
-      // Inputs
-      let fromBlock = parseInt($("fromBlock").value || "0", 10);
-      let toBlock   = $("toBlock").value ? parseInt($("toBlock").value, 10) : latest;
-      const initChunk = Math.max(1000, parseInt($("chunkSize").value || "15000", 10));
-      const minChunk  = Math.max(500, parseInt($("minChunk").value || "2000", 10));
-      const timeoutMs = Math.max(5000, parseInt($("timeoutMs").value || "25000", 10));
-      const want165   = $("verify165").checked;
-      const keepCk    = $("saveCheckpoints").checked;
-      const deWindow  = $("dedupePerWindow").checked;
-
-      if (Number.isNaN(fromBlock) || fromBlock < 0) fromBlock = 0;
-      if (Number.isNaN(toBlock)   || toBlock < fromBlock) toBlock = latest;
-
-      // State & checkpoints
-      const ck = CK.load();
-      const ckKey = `${fromBlock}-${toBlock}-${initChunk}-${minChunk}-${timeoutMs}`;
-      const seen   = new Map( (ck[ckKey]?.seen || []).map(([a,info]) => [a, info]) ); // address -> { standard, mints }
-      let progressEnd = ck[ckKey]?.progressEnd ?? (fromBlock - 1);
-
-      function saveCk() {
-        if (!keepCk) return;
-        const obj = ck; // in-memory
-        obj[ckKey] = {
-          seen: Array.from(seen.entries()),
-          progressEnd
+    // ---------- Load contract list ----------
+    async function loadContractList(url){
+      try {
+        const resp = await fetch(url, { cache: "no-store" });
+        const data = await resp.json();
+        // Normalise to [{address, standard?}]
+        const list = [];
+        const push = (addr, standard, mints) => {
+          try {
+            const a = window.ethers.getAddress(addr);
+            list.push({ address: a, standard: (standard || "Unknown"), mints: mints ?? 0 });
+          } catch {}
         };
-        CK.save(obj);
-      }
-
-      const totalBlocks = toBlock - fromBlock + 1;
-      setStatus(`Scanning mint events… blocks ${fmt(fromBlock)} → ${fmt(toBlock)} (total ${fmt(totalBlocks)})`);
-      log(`Start: from ${fromBlock} to ${toBlock} | init=${initChunk}, min=${minChunk}, timeout=${timeoutMs}ms`);
-
-      const collectionsEl = $("collections");
-
-      // Helper to record a contract mint
-      function record(address) {
-        const addr = window.ethers.getAddress(address);
-        const key = addr.toLowerCase();
-        const cur = seen.get(key) || { standard: "Unknown", mints: 0 };
-        cur.mints += 1;
-        seen.set(key, cur);
-      }
-
-      const chain = await provider.getNetwork(); const chainId = Number(chain.chainId);
-
-      // Outer loop: process in windows of initChunk; inside, three filters per window (721 mint, 1155 single mint, 1155 batch mint)
-      for (let windowStart = Math.max(fromBlock, progressEnd + 1); windowStart <= toBlock; windowStart += initChunk) {
-        if (CANCEL) break;
-        const windowEnd = Math.min(windowStart + initChunk - 1, toBlock);
-        setStatus(`Scanning ${fmt(windowStart)} → ${fmt(windowEnd)} of ${fmt(toBlock)}…`);
-        log(`Window: ${windowStart}-${windowEnd}`);
-
-        // Optional per-window de-duplication to cut work
-        const windowAddrs = new Set();
-
-        // 1) ERC-721 mints: Transfer where from = zero
-        {
-          const base = { topics: [TOPIC_ERC721_TRANSFER, ZERO_TOPIC, null] };
-          const logs = await getLogsAdaptive(provider, base, windowStart, windowEnd, initChunk, minChunk, timeoutMs, (end)=> {
-            progressEnd = Math.max(progressEnd, end);
-            prog.value = Math.min(100, Math.round(((progressEnd - fromBlock + 1) / totalBlocks) * 100));
-          });
-          for (const L of logs) {
-            if (CANCEL) break;
-            const a = L.address;
-            if (deWindow) { windowAddrs.add(a); } else { record(a); }
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            if (typeof item === "string") push(item);
+            else if (item && typeof item === "object" && item.address) push(item.address, item.standard, item.mints);
           }
         }
-
-        // 2) ERC-1155 Single mints: TransferSingle where from = zero (topics[2])
-        {
-          const base = { topics: [TOPIC_ERC1155_SINGLE, null, ZERO_TOPIC, null] };
-          const logs = await getLogsAdaptive(provider, base, windowStart, windowEnd, initChunk, minChunk, timeoutMs, (end)=> {
-            progressEnd = Math.max(progressEnd, end);
-            prog.value = Math.min(100, Math.round(((progressEnd - fromBlock + 1) / totalBlocks) * 100));
-          });
-          for (const L of logs) {
-            if (CANCEL) break;
-            const a = L.address;
-            if (deWindow) { windowAddrs.add(a); } else { record(a); }
+        // De‑dupe by address (case-insensitive)
+        const seen = new Map();
+        for (const it of list) {
+          const key = it.address.toLowerCase();
+          if (!seen.has(key)) seen.set(key, it);
+          else {
+            // prefer entries with known standard
+            const old = seen.get(key);
+            if (old.standard === "Unknown" && it.standard !== "Unknown") seen.set(key, it);
           }
         }
+        return Array.from(seen.values());
+      } catch (e) {
+        throw new Error("Failed to load or parse the contract list JSON. Check path & CORS.");
+      }
+    }
 
-        // 3) ERC-1155 Batch mints: TransferBatch where from = zero (topics[2])
-        {
-          const base = { topics: [TOPIC_ERC1155_BATCH, null, ZERO_TOPIC, null] };
-          const logs = await getLogsAdaptive(provider, base, windowStart, windowEnd, initChunk, minChunk, timeoutMs, (end)=> {
-            progressEnd = Math.max(progressEnd, end);
-            prog.value = Math.min(100, Math.round(((progressEnd - fromBlock + 1) / totalBlocks) * 100));
-          });
-          for (const L of logs) {
-            if (CANCEL) break;
-            const a = L.address;
-            if (deWindow) { windowAddrs.add(a); } else { record(a); }
-          }
-        }
+    // ---------- Wallet scan over contract list ----------
+    async function scanWalletOverList() {
+      clearMsgs();
+      $("tokens").classList.remove("muted"); $("tokens").textContent = "";
+      $("selected").textContent = "Scanning…"; $("selPill").textContent = "—";
+      $("foundPill").textContent = "0 collections";
+      $("prog").value = 0; CANCEL = false;
 
-        // If we were collecting deduped per window, commit them now
-        if (deWindow) {
-          windowAddrs.forEach(addr => record(addr));
-        }
+      const scanBtn = $("scanBtn"), stopBtn = $("stopBtn");
+      scanBtn.disabled = true; stopBtn.disabled = false;
 
-        // Persist checkpoints periodically
-        saveCk();
+      // Validate wallet
+      const walletRaw = $("wallet").value.trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(walletRaw)) {
+        setError("Please enter a valid EVM address (0x…40 hex chars).");
+        scanBtn.disabled = false; stopBtn.disabled = true;
+        return;
+      }
+      const wallet = window.ethers.getAddress(walletRaw);
+      const walletTopic = toTopicAddress(wallet);
 
-        // Render a compact snapshot (top 200 by mint count)
-        renderCollections(collectionsEl, seen, chainId);
+      // Load list
+      const listUrl = $("listUrl").value.trim() || "./data/sonic_nft_collections.json";
+      setStatus(`Loading contract list from ${listUrl}…`);
+      let contracts = await loadContractList(listUrl).catch(e => { setError(e.message || "List load error."); return null; });
+      if (!contracts) { scanBtn.disabled = false; stopBtn.disabled = true; return; }
 
-        if (CANCEL) break;
+      // Optional limit (for testing)
+      if ($("limitContracts").checked) {
+        const n = Math.max(1, parseInt($("limitN").value || "100", 10));
+        contracts = contracts.slice(0, n);
       }
 
-      // Optional: ERC-165 verification to label standards (run after discovery to keep log queries fast)
-      if (!CANCEL && want165) {
-        setStatus("Verifying standards via ERC‑165 (supportsInterface)…");
-        const arr = Array.from(seen.entries());
-        // modest concurrency
-        const provider2 = provider;
-        const limit = 8; let i = 0; let active = 0;
-        const next = () => new Promise(res => {
-          const work = () => {
-            if (CANCEL || i >= arr.length) return res();
-            while (active < limit && i < arr.length) {
-              const idx = i++; active++;
-              const [addr, info] = arr[idx];
-              verifyStandard(provider2, addr).then(standard => {
-                info.standard = standard || info.standard;
-              }).catch(()=>{}).finally(()=>{
-                active--;
-                $("foundPill").textContent = String(seen.size);
-                renderCollections(collectionsEl, seen, chainId, true);
-                if (i < arr.length) work(); else res();
-              });
+      if (contracts.length === 0) {
+        setError("The contract list is empty.");
+        scanBtn.disabled = false; stopBtn.disabled = true; return;
+      }
+
+      setStatus(`Loaded ${fmt(contracts.length)} contracts. Preparing to scan wallet ${mono(wallet)}…`);
+
+      const provider = getProvider();
+      const latest = await provider.getBlockNumber().catch(e => { setError("RPC error getting latest block."); return null; });
+      if (latest == null) { scanBtn.disabled = false; stopBtn.disabled = true; return; }
+
+      const initChunk = Math.max(1000, parseInt($("chunkSize").value || "15000", 10));
+      const minChunk  = Math.max(500,  parseInt($("minChunk").value || "2000", 10));
+      const timeoutMs = Math.max(5000, parseInt($("timeoutMs").value || "25000", 10));
+      const respectStd = $("respectStandard").checked;
+      const inferIfMissing = $("inferIfMissing").checked;
+      const verify165 = $("verify165").checked;
+
+      const total = contracts.length;
+      let done = 0;
+
+      // Results
+      const results = []; // {address, standard, ids:[{id, bal}]}
+
+      // Limit concurrency to be nice to the RPC
+      const CONCURRENCY = 3;
+      const queue = contracts.map((c) => ({...c}));
+
+      async function workOn(contract) {
+        if (CANCEL) return;
+        const addr = contract.address;
+        let standard = (respectStd && contract.standard && contract.standard !== "Unknown") ? contract.standard : "Unknown";
+
+        const baseFilter = { address: addr };
+        const ownedTokens = new Map(); // id -> BigInt (1155 balance) or count for 721 (+1/-1)
+
+        // helper reducers
+        function apply721(logs) {
+          for (const L of logs) {
+            const fromTopic = L.topics[1];
+            const toTopic   = L.topics[2];
+            const tokenId   = window.ethers.toBigInt(L.topics[3]).toString();
+            const cur = ownedTokens.get(tokenId) || 0;
+            const from = "0x" + fromTopic.slice(26);
+            const to   = "0x" + toTopic.slice(26);
+            let next = cur;
+            if (window.ethers.getAddress(from) === wallet) next -= 1;
+            if (window.ethers.getAddress(to)   === wallet) next += 1;
+            ownedTokens.set(tokenId, next);
+          }
+        }
+        function apply1155Single(logs) {
+          for (const L of logs) {
+            const parsed = iface1155.decodeEventLog("TransferSingle", L.data, L.topics);
+            const from = window.ethers.getAddress(parsed.from);
+            const to   = window.ethers.getAddress(parsed.to);
+            const id   = window.ethers.toBigInt(parsed.id).toString();
+            const val  = window.ethers.toBigInt(parsed.value);
+            const cur  = ownedTokens.get(id) || 0n;
+            let next = cur;
+            if (from === wallet) next -= val;
+            if (to   === wallet) next += val;
+            ownedTokens.set(id, next);
+          }
+        }
+        function apply1155Batch(logs) {
+          for (const L of logs) {
+            const parsed = iface1155.decodeEventLog("TransferBatch", L.data, L.topics);
+            const from = window.ethers.getAddress(parsed.from);
+            const to   = window.ethers.getAddress(parsed.to);
+            const ids  = parsed.ids.map(x => window.ethers.toBigInt(x).toString());
+            const vals = parsed.values.map(x => window.ethers.toBigInt(x));
+            for (let i=0;i<ids.length;i++){
+              const id = ids[i], val = vals[i];
+              const cur = ownedTokens.get(id) || 0n;
+              let next = cur;
+              if (from === wallet) next -= val;
+              if (to   === wallet) next += val;
+              ownedTokens.set(id, next);
             }
-          };
-          work();
-        });
-        await next();
+          }
+        }
+
+        // Scan logic per contract
+        try {
+          // If we know it's 721, only do 721 queries. If 1155, only 1155. If unknown and allowed, do both.
+          const do721 = (standard === "ERC721") || (standard === "Unknown" && inferIfMissing);
+          const do1155 = (standard === "ERC1155") || (standard === "Unknown" && inferIfMissing);
+
+          // 721
+          if (!CANCEL && do721) {
+            const fFrom = { ...baseFilter, topics: [TOPIC_ERC721_TRANSFER, toTopicAddress(wallet), null] };
+            const fTo   = { ...baseFilter, topics: [TOPIC_ERC721_TRANSFER, null, toTopicAddress(wallet)] };
+            const [logsFrom, logsTo] = await Promise.all([
+              getLogsAdaptive(provider, fFrom, 0, latest, initChunk, minChunk, timeoutMs),
+              getLogsAdaptive(provider, fTo,   0, latest, initChunk, minChunk, timeoutMs)
+            ]);
+            apply721(logsFrom); apply721(logsTo);
+          }
+
+          // 1155
+          if (!CANCEL && do1155) {
+            // Single
+            const fSFrom = { ...baseFilter, topics: [TOPIC_ERC1155_SINGLE, null, toTopicAddress(wallet), null] };
+            const fSTo   = { ...baseFilter, topics: [TOPIC_ERC1155_SINGLE, null, null, toTopicAddress(wallet)] };
+            const [sFrom, sTo] = await Promise.all([
+              getLogsAdaptive(provider, fSFrom, 0, latest, initChunk, minChunk, timeoutMs),
+              getLogsAdaptive(provider, fSTo,   0, latest, initChunk, minChunk, timeoutMs)
+            ]);
+            apply1155Single(sFrom); apply1155Single(sTo);
+
+            // Batch
+            const fBFrom = { ...baseFilter, topics: [TOPIC_ERC1155_BATCH, null, toTopicAddress(wallet), null] };
+            const fBTo   = { ...baseFilter, topics: [TOPIC_ERC1155_BATCH, null, null, toTopicAddress(wallet)] };
+            const [bFrom, bTo] = await Promise.all([
+              getLogsAdaptive(provider, fBFrom, 0, latest, initChunk, minChunk, timeoutMs),
+              getLogsAdaptive(provider, fBTo,   0, latest, initChunk, minChunk, timeoutMs)
+            ]);
+            apply1155Batch(bFrom); apply1155Batch(bTo);
+          }
+
+          // If nothing found and we had Unknown + verify165 → try to label for the future cache (optional UI path)
+          if (!CANCEL && standard === "Unknown" && verify165) {
+            try {
+              const c = new window.ethers.Contract(addr, ["function supportsInterface(bytes4) view returns (bool)"], provider);
+              const [is721, is1155] = await Promise.allSettled([ c.supportsInterface(IFACE_721), c.supportsInterface(IFACE_1155) ]);
+              if (is721.status === "fulfilled" && is721.value) standard = "ERC721";
+              else if (is1155.status === "fulfilled" && is1155.value) standard = "ERC1155";
+            } catch {}
+          }
+
+          // Build result: keep only positive holdings
+          let items = [];
+          if ((standard === "ERC721") || (standard === "Unknown")) {
+            // Interpret numeric values as counts; >0 => owned
+            const owned = [];
+            for (const [id, net] of ownedTokens.entries()) {
+              if (typeof net === "number" && net > 0) owned.push({ id, bal: 1n }); // 721 effectively 1 per id
+            }
+            if (owned.length) items = owned;
+          }
+          if ((standard === "ERC1155") || (standard === "Unknown")) {
+            const owned = [];
+            for (const [id, bal] of ownedTokens.entries()) {
+              if (typeof bal === "bigint" && bal > 0n) owned.push({ id, bal });
+            }
+            if (owned.length) items = owned;
+          }
+
+          if (items.length) {
+            results.push({ address: addr, standard, ids: items });
+          }
+        } catch (e) {
+          console.warn("Contract scan error", addr, e);
+        } finally {
+          done++;
+          $("prog").value = Math.round((done / total) * 100);
+          setStatus(`Scanned ${fmt(done)} / ${fmt(total)} contracts…`);
+        }
       }
+
+      const workers = Array.from({length: Math.min(CONCURRENCY, total)}, async () => {
+        while (!CANCEL && queue.length) {
+          const contract = queue.shift();
+          await workOn(contract);
+        }
+      });
+      await Promise.all(workers);
 
       if (CANCEL) {
         setStatus("Scan canceled.");
-      } else {
-        setStatus(`Done. Found ${fmt(seen.size)} contract${seen.size!==1?"s":""}. You can export the list now.`);
-      }
-
-      // Final save
-      saveCk();
-
-      $("foundPill").textContent = String(seen.size);
-      renderCollections(collectionsEl, seen, chainId, true);
-
-      startBtn.disabled = false; stopBtn.disabled = true; exportBtn.disabled = false;
-    }
-
-    function renderCollections(containerEl, seenMap, chainId, compact=false) {
-      const items = Array.from(seenMap.entries())
-        .map(([addr, info]) => ({ address: addr, standard: info.standard || "Unknown", mints: info.mints|0 }))
-        .sort((a,b)=> (b.mints - a.mints) || a.address.localeCompare(b.address));
-
-      $("foundPill").textContent = String(items.length);
-      containerEl.textContent = "";
-      if (items.length === 0) {
-        containerEl.classList.add("muted");
-        containerEl.textContent = "No results yet";
+        scanBtn.disabled = false; stopBtn.disabled = true;
         return;
-      } else {
-        containerEl.classList.remove("muted");
       }
 
-      const maxShow = compact ? Math.min(items.length, 500) : items.length;
-      for (let k=0; k<maxShow; k++) {
-        const it = items[k];
-        const div = document.createElement("div");
-        div.className = "token";
-        const link = `https://sonicscan.org/token/${it.address}`;
-        div.innerHTML = `
-          <div class="hdr">
-            <div>
-              <div><strong>${it.standard}</strong> • <span class="mono">${it.address}</span></div>
-              <div class="small muted"><a href="${link}" target="_blank" rel="noopener">View on SonicScan</a> • Chain ${chainId}</div>
-            </div>
-            <div class="pill">mints: ${fmt(it.mints)}</div>
-          </div>
-        `;
-        containerEl.appendChild(div);
-      }
-      if (items.length > maxShow) {
-        const more = document.createElement("div");
-        more.className = "small muted";
-        more.textContent = `+ ${fmt(items.length - maxShow)} more… (export to view all)`;
-        containerEl.appendChild(more);
-      }
+      // Render results
+      renderCollections(results, wallet, provider);
+
+      setStatus(`Scan complete. Found ${fmt(results.length)} collection${results.length!==1?"s":""} with holdings.`);
+      scanBtn.disabled = false; stopBtn.disabled = true;
     }
 
-    // ======= Export & Clear =======
-    function exportJSON() {
-      const ck = CK.load();
-      const out = {};
-      for (const k of Object.keys(ck)) {
-        // Keep only the most recent session by default; or export all—here we export the current selection on screen:
-        // We’ll aggregate everything we have into a flat unique list with metadata.
-        const entry = ck[k];
-        if (!entry || !Array.isArray(entry.seen)) continue;
-        for (const [addr, info] of entry.seen) {
-          out[addr] = out[addr] || { standard: info.standard || "Unknown", mints: 0 };
-          out[addr].mints += (info.mints|0);
+    function renderCollections(results, wallet, provider) {
+      const tokensEl = $("tokens");
+      tokensEl.textContent = "";
+      if (!results.length) {
+        tokensEl.classList.add("muted");
+        tokensEl.textContent = "No NFTs found for this wallet in the provided contract list.";
+        $("foundPill").textContent = "0 collections";
+        $("selected").textContent = "—";
+        $("selPill").textContent = "—";
+        return;
+      }
+
+      $("foundPill").textContent = `${results.length} collection${results.length>1?"s":""}`;
+      const chainIdPromise = provider.getNetwork().then(n => Number(n.chainId)).catch(()=>146);
+
+      results
+        .sort((a,b)=> (b.ids.length - a.ids.length) || a.address.localeCompare(b.address))
+        .forEach((col) => {
+          const div = document.createElement("div");
+          div.className = "token";
+          div.innerHTML = `
+            <div class="hdr">
+              <div>
+                <div><strong>${col.standard || "Unknown"}</strong></div>
+                <div class="small muted mono">${col.address}</div>
+              </div>
+              <div class="pill">${col.ids.length} token${col.ids.length>1?"s":""}</div>
+            </div>`;
+          div.addEventListener("click", async () => {
+            const chainId = await chainIdPromise;
+            renderCollectionDetail(col, wallet, chainId);
+          });
+          tokensEl.appendChild(div);
+        });
+    }
+
+    function renderCollectionDetail(col, wallet, chainId) {
+      const sel = $("selected");
+      sel.textContent = "";
+      $("selPill").textContent = `${col.standard || "Unknown"} • ${col.ids.length} token${col.ids.length>1?"s":""}`;
+
+      const header = document.createElement("div");
+      header.innerHTML = `
+        <div style="margin-bottom:.5rem;">
+          <div><strong>${col.standard || "Unknown"}</strong></div>
+          <div class="small muted mono">${col.address}</div>
+          <div class="small muted">Chain: ${chainId} • Owner: <span class="mono">${wallet}</span></div>
+        </div>`;
+      sel.appendChild(header);
+
+      const box = document.createElement("div"); box.className = "list";
+      const ids = col.ids.slice().sort((a,b) => (BigInt(a.id) > BigInt(b.id) ? 1 : -1));
+      for (const {id, bal} of ids) {
+        const row = document.createElement("div");
+        row.className = "token";
+        if (col.standard === "ERC1155") {
+          row.innerHTML = `<div class="mono">id: ${id}</div><div class="small muted">balance: ${bal.toString ? bal.toString() : String(bal)}</div>`;
+        } else {
+          row.innerHTML = `<div class="mono">tokenId: ${id}</div>`;
         }
+        box.appendChild(row);
       }
-      // If no cache (user didn’t enable checkpoints), try to build from current UI by scraping DOM:
-      if (Object.keys(out).length === 0) {
-        setError("No cached data to export. Enable checkpoints or export right after a scan.");
-        return;
-      }
-      const arr = Object.entries(out).map(([address,info]) => ({ address, standard: info.standard, mints: info.mints|0 }))
-                                     .sort((a,b)=> (b.mints - a.mints) || a.address.localeCompare(b.address));
-      const blob = new Blob([JSON.stringify(arr, null, 2)], { type: "application/json" });
-      const url  = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `sonic_nft_collections_${Date.now()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      sel.appendChild(box);
     }
 
-    function clearCache() {
-      CK.clear();
-      $("collections").textContent = "Cache cleared.";
-      $("foundPill").textContent = "0";
-      log("(checkpoints cleared)");
-    }
-
-    // ======= Wire UI =======
+    // ---------- Wire UI ----------
     window.addEventListener("DOMContentLoaded", async () => {
       if (typeof window.ethers === "undefined") {
         setError("Failed to load ethers.js. Check network/CSP or reload.");
         return;
       }
-      const provider = getProvider();
+      // preload “latest” in case we need it for messaging
       try {
+        const provider = getProvider();
         const latest = await provider.getBlockNumber();
-        $("toBlock").placeholder = `${latest} (latest)`;
-      } catch { /* ignore */ }
+        // no-op display; the scan uses latest automatically
+      } catch {/* ignore */}
 
-      $("startBtn").addEventListener("click", (e)=>{ e.preventDefault(); runDiscovery(); });
+      $("scanBtn").addEventListener("click", (e)=>{ e.preventDefault(); scanWalletOverList(); });
       $("stopBtn").addEventListener("click", (e)=>{ e.preventDefault(); CANCEL = true; setStatus("Stopping…"); });
-      $("exportBtn").addEventListener("click", (e)=>{ e.preventDefault(); exportJSON(); });
-      $("clearBtn").addEventListener("click", (e)=>{ e.preventDefault(); clearCache(); });
+      $("wallet").addEventListener("keydown", (e)=>{ if (e.key === "Enter") { e.preventDefault(); scanWalletOverList(); } });
     });
   </script>
 </body>
